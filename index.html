@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MCN Event Tracker</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- HTML2PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- React & ReactDOM & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; overscroll-behavior-y: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
+        
+        /* Animation utilities */
+        .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .slide-in { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        // Using stable version 10.13.1 to avoid CDN issues with non-existent versions
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-analytics.js";
+        import { 
+            getAuth, 
+            onAuthStateChanged, 
+            signInAnonymously, 
+            signInWithCustomToken 
+        } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            updateDoc, 
+            deleteDoc, 
+            doc, 
+            onSnapshot, 
+            serverTimestamp,
+            query,
+            getDocs,
+            writeBatch,
+            setDoc,
+            getDoc 
+        } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        
+        // Import Lucide Icons from esm.sh
+        import { 
+            LayoutDashboard, Calendar as CalendarIcon, FileBarChart, Settings, Plus, Search, 
+            Trash2, Edit2, X, Check, Filter, User, LogOut, Save, Users, Database, Briefcase, 
+            MapPin, Monitor, AlertTriangle, RefreshCw, Eye, EyeOff, Lock, ChevronRight, 
+            Download, Upload, ChevronDown, ShieldAlert, AlertCircle, CalendarDays, ListFilter, 
+            Clock, Printer, FileText, Smartphone, Menu
+        } from 'https://esm.sh/lucide-react@0.263.1';
+
+        // --- Firebase Init ---
+        // Config for newmcntracker-f8aff
+        const firebaseConfig = {
+            apiKey: "AIzaSyB5ByJCJQizkF9qbdRwLY4l3lF8G-5hBd8",
+            authDomain: "newmcntracker-f8aff.firebaseapp.com",
+            projectId: "newmcntracker-f8aff",
+            storageBucket: "newmcntracker-f8aff.firebasestorage.app",
+            messagingSenderId: "450033345306",
+            appId: "1:450033345306:web:72f779af782eabd83a42a3",
+            measurementId: "G-5ZELR22P80"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        // Static ID for the app instance within the DB - MUST MATCH SECURITY RULES
+        const appId = 'mcn-tracker-v1';
+
+        // --- Constants & Helper Functions ---
+        const ADMIN_ROLES = ['Super Admin', 'Supervisor', 'Live Operator Lead', 'Live Operator Trainer'];
+
+        const checkIsAdmin = (user) => {
+            if (!user || !user.role) return false;
+            return ADMIN_ROLES.includes(user.role);
+        };
+
+        const getManilaToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+        const getManilaMonth = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }).slice(0, 7);
+
+        const formatDateForDisplay = (dateStr, timeStr) => {
+            if (!dateStr) return '-';
+            const [year, month, day] = dateStr.split('-').map(Number);
+            const [hour, minute] = (timeStr || '00:00').split(':').map(Number);
+            const d = new Date(year, month - 1, day, hour, minute);
+            return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) + 
+                   ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        };
+
+        const getDayName = (dateStr) => {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-US', { weekday: 'long' });
+        };
+
+        const getStatusColor = (status) => {
+            switch (status) {
+                case 'Confirm': return 'bg-green-100 text-green-700 border-green-200';
+                case 'Pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+                case 'Cancelled': return 'bg-red-100 text-red-700 border-red-200';
+                case 'Done': return 'bg-blue-100 text-blue-700 border-blue-200';
+                default: return 'bg-slate-100 text-slate-700';
+            }
+        };
+
+        const getCompanyColor = (company) => {
+            if (company === 'MCom') return 'text-orange-600';
+            if (company === 'StarTok') return 'text-purple-600';
+            if (company === 'Sync') return 'text-slate-900';
+            return 'text-slate-600';
+        };
+
+        const getNickname = (fullName, team) => {
+            if (!team || !fullName) return fullName;
+            const member = team.find(t => t.name === fullName);
+            return member ? member.nickname : fullName;
+        };
+
+        const groupMembersByRole = (members) => {
+            const groups = {};
+            members.forEach(m => {
+                if (!groups[m.role]) groups[m.role] = [];
+                groups[m.role].push(m);
+            });
+            return Object.keys(groups).sort().map(role => ({
+                role,
+                members: groups[role].sort((a, b) => a.name.localeCompare(b.name))
+            }));
+        };
+
+        // --- Components ---
+
+        const PasswordInput = ({ value, onChange, placeholder = "Enter password", className }) => {
+            const [show, setShow] = React.useState(false);
+            return (
+                <div className="relative">
+                    <input 
+                        type={show ? "text" : "password"}
+                        value={value}
+                        onChange={onChange}
+                        className={`${className} pr-10`}
+                        placeholder={placeholder}
+                    />
+                    <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600">
+                        {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                </div>
+            );
+        };
+
+        const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, isDelete = false }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4 fade-in">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+                        <div className="p-6">
+                            <div className={`flex items-center gap-3 mb-4 ${isDelete ? 'text-red-600' : 'text-amber-600'}`}>
+                                <div className={`p-2 rounded-lg ${isDelete ? 'bg-red-50' : 'bg-amber-50'}`}><AlertCircle size={24} /></div>
+                                <h3 className="text-lg font-bold text-slate-800">{title || "Confirm Action"}</h3>
+                            </div>
+                            <p className="text-slate-600 mb-6 text-sm leading-relaxed">{message}</p>
+                            <div className="flex gap-3">
+                                <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-medium hover:bg-slate-50 transition-colors">Cancel</button>
+                                <button onClick={onConfirm} className={`flex-1 px-4 py-2.5 text-white rounded-xl font-medium shadow-md transition-all active:scale-95 ${isDelete ? 'bg-red-600 hover:bg-red-700 shadow-red-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>Confirm</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SecurityModal = ({ isOpen, onClose, onConfirm, actionType }) => {
+            const [password, setPassword] = React.useState('');
+            const [error, setError] = React.useState('');
+            if (!isOpen) return null;
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!password) { setError('Password is required'); return; }
+                onConfirm(password, (isValid) => {
+                    if (isValid) { setPassword(''); setError(''); onClose(); } else { setError('Incorrect password'); }
+                });
+            };
+            const getModalContent = () => {
+                switch (actionType) {
+                    case 'reset': return { title: 'Factory Reset', message: 'WARNING: You are about to permanently delete ALL event data.', color: 'red', icon: AlertTriangle };
+                    case 'restore': return { title: 'Restore Data', message: 'Restoring from a backup will overwrite your current configuration.', color: 'indigo', icon: RefreshCw };
+                    case 'backup': return { title: 'Download Backup', message: 'Please verify your identity to download the system backup file.', color: 'indigo', icon: Download };
+                    default: return { title: 'Security Check', message: '', color: 'slate', icon: Lock };
+                }
+            };
+            const content = getModalContent();
+            const Icon = content.icon;
+            return (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div className={`p-6 border-b border-${content.color}-100 bg-${content.color}-50 flex items-start gap-4`}>
+                            <div className={`p-3 bg-white rounded-xl shadow-sm text-${content.color}-600`}><Icon size={24} /></div>
+                            <div><h3 className={`text-lg font-bold text-${content.color}-900`}>{content.title}</h3><p className={`text-sm text-${content.color}-700 mt-1`}>Security Verification Required</p></div>
+                        </div>
+                        <div className="p-6">
+                            <p className="text-slate-600 mb-6 text-sm leading-relaxed">{content.message}</p>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Confirm Password</label><PasswordInput value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }} className={`w-full px-4 py-2.5 rounded-lg border focus:ring-2 outline-none transition-all ${error ? 'border-red-300 focus:ring-red-200' : 'border-slate-300 focus:ring-indigo-200 focus:border-indigo-500'}`} />{error && <p className="text-red-500 text-xs mt-1 font-medium flex items-center gap-1"><ShieldAlert size={12}/> {error}</p>}</div>
+                                <div className="flex gap-3 pt-2"><button type="button" onClick={() => { onClose(); setPassword(''); setError(''); }} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors">Cancel</button><button type="submit" className={`flex-1 px-4 py-2.5 rounded-xl text-white font-medium shadow-lg transition-all active:scale-[0.98] ${content.color === 'red' ? 'bg-red-600 hover:bg-red-700 shadow-red-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>Confirm & Proceed</button></div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SearchableMultiSelect = ({ label, options, selected = [], onChange, disabledOptions = [] }) => {
+            const [isOpen, setIsOpen] = React.useState(false);
+            const [searchTerm, setSearchTerm] = React.useState('');
+            const containerRef = React.useRef(null);
+            React.useEffect(() => {
+                const handleClickOutside = (event) => { if (containerRef.current && !containerRef.current.contains(event.target)) { setIsOpen(false); setSearchTerm(''); } };
+                document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside);
+            }, []);
+            const toggleOption = (optionName) => { if (selected.includes(optionName)) { onChange(selected.filter(item => item !== optionName)); } else { onChange([...selected, optionName]); } };
+            const filteredOptions = options.filter(opt => opt.nickname.toLowerCase().includes(searchTerm.toLowerCase()) || opt.name.toLowerCase().includes(searchTerm.toLowerCase()));
+            const safeSelected = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+            const displayValue = safeSelected.length > 0 ? safeSelected.map(name => { const opt = options.find(o => o.name === name); return opt ? opt.nickname : name; }).join(', ') : `Select ${label}`;
+            return (
+                <div className="relative" ref={containerRef}>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+                    <div onClick={() => setIsOpen(!isOpen)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer flex justify-between items-center min-h-[42px]"><span className={`text-sm ${safeSelected.length === 0 ? 'text-slate-400' : 'text-slate-800'} truncate`}>{displayValue}</span><ChevronDown size={16} className="text-slate-400 shrink-0" /></div>
+                    {isOpen && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
+                            <div className="p-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10"><div className="relative"><Search className="absolute left-2 top-2 text-slate-400" size={14} /><input type="text" autoFocus placeholder={`Search ${label}...`} className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-md outline-none focus:border-indigo-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onClick={(e) => e.stopPropagation()} /></div></div>
+                            <div className="overflow-y-auto custom-scrollbar flex-1">{filteredOptions.length > 0 ? (filteredOptions.map((option, idx) => { const isDisabled = disabledOptions.includes(option.name); const isSelected = safeSelected.includes(option.name); return ( <div key={idx} onClick={() => !isDisabled && toggleOption(option.name)} className={`px-3 py-2.5 text-sm flex items-center gap-3 cursor-pointer transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'hover:bg-indigo-50'} ${isSelected ? 'bg-indigo-50' : ''}`}><div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>{isSelected && <Check size={12} className="text-white" />}</div><div><div className="font-medium text-slate-800">{option.nickname}</div><div className="text-xs text-slate-500">{option.role}</div></div></div> ); })) : <div className="px-4 py-3 text-sm text-slate-400 text-center italic">No results found</div>}</div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const ListManager = ({ title, items, onAdd, onDelete }) => {
+            const [newItem, setNewItem] = React.useState('');
+            const handleAdd = () => { if (newItem.trim()) { onAdd(newItem.trim()); setNewItem(''); } };
+            return (
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><ChevronRight size={18} className="text-indigo-600" />{title}</h4>
+                    <div className="flex gap-2 mb-4"><input type="text" value={newItem} onChange={(e) => setNewItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder={`Add ${title}...`} className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /><button onClick={handleAdd} className="px-4 py-2 bg-indigo-50 text-indigo-600 font-medium rounded-lg hover:bg-indigo-100 transition-colors">Add</button></div>
+                    <div className="flex flex-wrap gap-2">{items.map((item, idx) => (<span key={idx} className="group inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">{item}<button onClick={() => onDelete(idx)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={14} /></button></span>))}{items.length === 0 && <span className="text-slate-400 text-sm italic">No items added yet.</span>}</div>
+                </div>
+            );
+        };
+
+        // ... [Views: TeamMemberModal, LoginScreen, Dashboard, EventsView, ReportsView, SettingsView] ...
+        
+        const TeamMemberModal = ({ isOpen, onClose, onSave, initialData, roles }) => {
+            if (!isOpen) return null;
+            const [formData, setFormData] = React.useState({ name: '', nickname: '', role: 'Live Operator', password: '' });
+            const [showConfirm, setShowConfirm] = React.useState(false);
+            React.useEffect(() => { if (initialData) setFormData(initialData); else setFormData({ name: '', nickname: '', role: 'Live Operator', password: '' }); }, [initialData, isOpen]);
+            const handleSubmit = (e) => { e.preventDefault(); setShowConfirm(true); };
+            const handleConfirm = () => { onSave(formData); setShowConfirm(false); };
+            return (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in duration-200 relative">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h2 className="text-xl font-bold text-slate-800">{initialData ? 'Edit User' : 'Add New User'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={24} /></button></div>
+                        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Nickname</label><input required type="text" value={formData.nickname} onChange={e => setFormData({...formData, nickname: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Role</label><select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500">{roles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><PasswordInput value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+                            <div className="pt-4 flex gap-3"><button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">Cancel</button><button type="submit" className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-lg shadow-indigo-200">{initialData ? 'Save Changes' : 'Create User'}</button></div>
+                        </form>
+                        <ConfirmationModal isOpen={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={handleConfirm} title="Save User Details" message={`Are you sure you want to ${initialData ? 'update' : 'create'} this user account?`} />
+                    </div>
+                </div>
+            );
+        };
+
+        const LoginScreen = ({ onLogin, adminProfile, team = [] }) => {
+            const [username, setUsername] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            const [error, setError] = React.useState('');
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const adminPass = adminProfile?.password || '123';
+                if (username === 'Admin' && password === adminPass) { onLogin({ ...adminProfile, role: 'Super Admin' }); return; }
+                const foundUser = team.find(member => (member.nickname.toLowerCase() === username.toLowerCase() || member.name.toLowerCase() === username.toLowerCase()) && member.password === password);
+                if (foundUser) onLogin(foundUser); else setError('Invalid credentials');
+            };
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
+                        <div className="text-center mb-8">
+                            <div className="w-24 h-24 mx-auto mb-4 bg-white rounded-2xl shadow-md p-1 flex items-center justify-center">
+                                <img src="icon-512.png" alt="MCN Tracker Logo" className="w-full h-full object-contain rounded-xl" onError={(e) => {e.target.style.display='none'; e.target.parentElement.innerHTML='<div class="bg-indigo-600 w-full h-full rounded-xl flex items-center justify-center text-white font-bold">MCN</div>'}} />
+                            </div>
+                            <h1 className="text-2xl font-bold text-slate-800">MCN Tracker</h1>
+                            <p className="text-slate-500 mt-2">Sign in to access the event dashboard</p>
+                        </div>
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Username / Nickname</label><input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="Enter username" /></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><PasswordInput value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" /></div>
+                            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+                            <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-md transition-all">Sign In</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ events, team, onUpdateStatus, currentUser }) => {
+            const [filterType, setFilterType] = React.useState('current');
+            const [selectedMonth, setSelectedMonth] = React.useState(getManilaMonth());
+            const today = getManilaToday();
+            const isAdmin = checkIsAdmin(currentUser);
+
+            const filteredStatsEvents = React.useMemo(() => {
+                if (filterType === 'all') return events;
+                let targetMonth, targetYear;
+                if (filterType === 'current') {
+                    const parts = getManilaMonth().split('-');
+                    targetYear = parseInt(parts[0]);
+                    targetMonth = parseInt(parts[1]) - 1;
+                } else {
+                    if (!selectedMonth) return events;
+                    const parts = selectedMonth.split('-');
+                    targetYear = parseInt(parts[0]);
+                    targetMonth = parseInt(parts[1]) - 1; 
+                }
+                return events.filter(e => {
+                    if (!e.date) return false;
+                    const d = new Date(e.date);
+                    const [y, m, day] = e.date.split('-').map(Number);
+                    return (m - 1) === targetMonth && y === targetYear;
+                });
+            }, [events, filterType, selectedMonth]);
+
+            const stats = React.useMemo(() => {
+                return {
+                    total: filteredStatsEvents.length,
+                    pending: filteredStatsEvents.filter(e => e.status === 'Pending').length,
+                    confirm: filteredStatsEvents.filter(e => e.status === 'Confirm').length,
+                    done: filteredStatsEvents.filter(e => e.status === 'Done').length,
+                    today: events.filter(e => e.date === today)
+                };
+            }, [filteredStatsEvents, events, today]);
+
+            const todayConfirmed = React.useMemo(() => stats.today.filter(e => e.status === 'Confirm'), [stats.today]);
+            const todayPending = React.useMemo(() => stats.today.filter(e => e.status === 'Pending'), [stats.today]);
+
+            const teamPerformanceGroups = React.useMemo(() => {
+                if (!team) return [];
+                const doneEvents = filteredStatsEvents.filter(e => e.status === 'Done');
+                const performanceData = team.map(member => {
+                    let icCount = 0; let bCount = 0;
+                    doneEvents.forEach(ev => {
+                        const icList = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
+                        if (icList.includes(member.name)) icCount++;
+                        const bList = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
+                        if (bList.includes(member.name)) bCount++;
+                    });
+                    return { ...member, inChargeCount: icCount, backupCount: bCount, total: icCount + bCount };
+                });
+                const activeMembers = performanceData.filter(m => m.total > 0);
+                return groupMembersByRole(activeMembers);
+            }, [filteredStatsEvents, team]);
+
+            const assignedStatsGroups = React.useMemo(() => {
+                if (!team) return [];
+                const ALLOWED_ROLES = ['Live Operator Lead', 'Live Operator Trainer', 'Live Operator'];
+                const activeEvents = filteredStatsEvents.filter(e => e.status !== 'Cancelled');
+                const eligibleMembers = team.filter(m => ALLOWED_ROLES.includes(m.role));
+                const assignmentData = eligibleMembers.map(member => {
+                    let inChargeCount = 0; let backupCount = 0;
+                    activeEvents.forEach(ev => {
+                        const icList = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
+                        const bList = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
+                        if (icList.includes(member.name)) { inChargeCount++; }
+                        if (bList.includes(member.name)) { backupCount++; }
+                    });
+                    return { ...member, inChargeCount, backupCount, total: inChargeCount + backupCount };
+                });
+                return groupMembersByRole(assignmentData);
+            }, [filteredStatsEvents, team]);
+
+            const renderNicknames = (data) => {
+                if (!data) return '-';
+                const list = Array.isArray(data) ? data : [data];
+                return list.map(name => getNickname(name, team)).join(', ');
+            };
+
+            const handleStatusSelect = (e, eventId) => { onUpdateStatus(eventId, e.target.value); };
+
+            const StatCard = ({ title, count, color, icon: Icon }) => (
+                <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
+                    <div><p className="text-slate-500 text-sm font-medium mb-1">{title}</p><h3 className="text-3xl font-bold text-slate-800">{count}</h3></div>
+                    <div className={`p-3 rounded-lg ${color}`}><Icon size={24} /></div>
+                </div>
+            );
+
+            return (
+                <div className="space-y-6 pb-20 sm:pb-0">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Dashboard Overview</h2>
+                        <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
+                            <button onClick={() => setFilterType('current')} className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all ${filterType === 'current' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>Current Month</button>
+                            <button onClick={() => setFilterType('all')} className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all ${filterType === 'all' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>All</button>
+                            <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+                            <div className="relative flex items-center w-full sm:w-auto">
+                                <CalendarDays size={16} className="absolute left-3 text-slate-400 pointer-events-none" />
+                                <input type="month" value={selectedMonth} onChange={(e) => { setSelectedMonth(e.target.value); setFilterType('specific'); }} className={`pl-9 pr-3 py-1.5 text-sm border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition-all w-full sm:w-auto ${filterType === 'specific' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`} />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <StatCard title="Total Events" count={stats.total} color="bg-indigo-100 text-indigo-600" icon={CalendarIcon} />
+                        <StatCard title="Pending" count={stats.pending} color="bg-yellow-100 text-yellow-600" icon={AlertTriangle} />
+                        <StatCard title="Confirmed" count={stats.confirm} color="bg-green-100 text-green-600" icon={Check} />
+                        <StatCard title="Done" count={stats.done} color="bg-blue-100 text-blue-600" icon={Briefcase} />
+                    </div>
+                    {todayPending.length > 0 && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 shadow-sm">
+                            <h3 className="text-yellow-800 font-bold flex items-center gap-2 mb-3"><AlertCircle size={20} /> Action Required: Pending (Today)</h3>
+                            <div className="overflow-x-auto bg-white rounded-lg border border-yellow-100">
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-yellow-50 text-yellow-700 font-semibold"><tr><th className="px-4 py-2">Time</th><th className="px-4 py-2">Brand</th><th className="px-4 py-2">In-Charge</th><th className="px-4 py-2">Status</th></tr></thead>
+                                    <tbody className="divide-y divide-yellow-100">
+                                        {todayPending.map(ev => (
+                                            <tr key={ev.id}>
+                                                <td className="px-4 py-3 font-mono">{ev.time}</td><td className="px-4 py-3 font-medium">{ev.brand}</td><td className="px-4 py-3">{renderNicknames(ev.inCharge)}</td>
+                                                <td className="px-4 py-3"><select value={ev.status} onChange={(e) => handleStatusSelect(e, ev.id)} disabled={!isAdmin} className={`px-2 py-1 rounded text-xs font-bold outline-none border border-yellow-300 ${isAdmin ? 'bg-yellow-100 text-yellow-700 cursor-pointer' : 'bg-slate-100 text-slate-500 cursor-not-allowed'}`}><option value="Confirm">Confirm</option><option value="Pending">Pending</option><option value="Cancelled">Cancelled</option></select></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><CalendarIcon className="text-indigo-600" size={20} /> Happening Today (Confirmed)</h3><span className="text-sm text-slate-500">{new Date(today).toDateString()}</span></div>
+                        <div className="p-0 overflow-x-auto">
+                            {todayConfirmed.length > 0 ? (
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Brand</th><th className="px-6 py-3">Venue</th><th className="px-6 py-3">In-Charge</th><th className="px-6 py-3">Backup</th><th className="px-6 py-3">Status</th></tr></thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {todayConfirmed.map(ev => (
+                                            <tr key={ev.id} className="hover:bg-slate-50/50">
+                                                <td className="px-6 py-4 font-mono">{ev.time}</td><td className="px-6 py-4 font-medium">{ev.brand}</td><td className="px-6 py-4">{ev.venue}</td><td className="px-6 py-4 max-w-[150px] truncate" title={renderNicknames(ev.inCharge)}>{renderNicknames(ev.inCharge)}</td><td className="px-6 py-4 text-slate-500 max-w-[150px] truncate" title={renderNicknames(ev.backup)}>{renderNicknames(ev.backup)}</td>
+                                                <td className="px-6 py-4"><select value={ev.status} onChange={(e) => handleStatusSelect(e, ev.id)} disabled={!isAdmin} className={`px-2 py-1 rounded-full text-xs font-semibold outline-none border transition-all ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${getStatusColor(ev.status)}`}><option value="Confirm">Confirm</option><option value="Pending">Pending</option><option value="Cancelled">Cancelled</option><option value="Done">Done</option></select></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : <div className="p-8 text-center text-slate-500">No confirmed events scheduled for today.</div>}
+                        </div>
+                    </div>
+                    {/* Team Perf and Assigned Stats Tables Omitted for Brevity - they use same overflow-x-auto pattern */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-6 border-b border-slate-100"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Users className="text-indigo-600" size={20} /> Team Performance (Done Events)</h3></div>
+                        <div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="px-6 py-3">Full Name</th><th className="px-6 py-3">Nickname</th><th className="px-6 py-3">Role</th><th className="px-6 py-3 text-center">In-Charge</th><th className="px-6 py-3 text-center">Backup</th><th className="px-6 py-3 text-center">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{teamPerformanceGroups.map((group) => (<React.Fragment key={group.role}><tr className="bg-slate-50"><td colSpan="6" className="font-bold text-slate-700 px-6 py-2 border-b border-slate-200">{group.role}</td></tr>{group.members.map((member, idx) => (<tr key={`${group.role}-${idx}`} className="hover:bg-slate-50/50"><td className="px-6 py-4 font-medium text-slate-800">{member.name}</td><td className="px-6 py-4 text-slate-600">{member.nickname}</td><td className="px-6 py-4 text-slate-500">{member.role}</td><td className="px-6 py-4 text-center font-bold text-indigo-600">{member.inChargeCount}</td><td className="px-6 py-4 text-center font-bold text-slate-600">{member.backupCount}</td><td className="px-6 py-4 text-center font-bold text-slate-800">{member.total}</td></tr>))}</React.Fragment>))}{teamPerformanceGroups.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-slate-500">No active team members for this period.</td></tr>}</tbody></table></div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-6 border-b border-slate-100"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Briefcase className="text-indigo-600" size={20} /> Assigned Event Counter</h3></div>
+                        <div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="px-6 py-3">Full Name</th><th className="px-6 py-3">Nickname</th><th className="px-6 py-3">Role</th><th className="px-6 py-3 text-center">In-Charge</th><th className="px-6 py-3 text-center">Backup</th><th className="px-6 py-3 text-center">Total Assigned</th></tr></thead><tbody className="divide-y divide-slate-100">{assignedStatsGroups.map((group) => (<React.Fragment key={group.role}><tr className="bg-slate-50"><td colSpan="6" className="font-bold text-slate-700 px-6 py-2 border-b border-slate-200">{group.role}</td></tr>{group.members.map((member, idx) => (<tr key={`${group.role}-${idx}`} className="hover:bg-slate-50/50"><td className="px-6 py-4 font-medium text-slate-800">{member.name}</td><td className="px-6 py-4 text-slate-600">{member.nickname}</td><td className="px-6 py-4 text-slate-500">{member.role}</td><td className="px-6 py-4 text-center font-bold text-indigo-600">{member.inChargeCount}</td><td className="px-6 py-4 text-center font-bold text-slate-600">{member.backupCount}</td><td className="px-6 py-4 text-center font-bold text-slate-800">{member.total}</td></tr>))}</React.Fragment>))}{assignedStatsGroups.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-slate-500">No data available.</td></tr>}</tbody></table></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const EventsView = ({ events, team, onAdd, onEdit, onDelete, currentUser }) => {
+            const [search, setSearch] = React.useState('');
+            const [filterType, setFilterType] = React.useState('current'); 
+            const [selectedMonth, setSelectedMonth] = React.useState(getManilaMonth());
+            const [statusFilter, setStatusFilter] = React.useState('All');
+            const isAdmin = checkIsAdmin(currentUser);
+
+            const filteredEvents = React.useMemo(() => {
+                let result = events;
+                if (statusFilter !== 'All') { const matchStatus = statusFilter === 'Confirmed' ? 'Confirm' : statusFilter; result = result.filter(e => e.status === matchStatus); }
+                if (filterType !== 'all') {
+                    let targetMonth, targetYear;
+                    if (filterType === 'current') { const parts = getManilaMonth().split('-'); targetYear = parseInt(parts[0]); targetMonth = parseInt(parts[1]) - 1; }
+                    else { if (selectedMonth) { const parts = selectedMonth.split('-'); targetYear = parseInt(parts[0]); targetMonth = parseInt(parts[1]) - 1; } }
+                    if (targetYear !== undefined && targetMonth !== undefined) { result = result.filter(e => { if (!e.date) return false; const [y, m, d] = e.date.split('-').map(Number); return (m - 1) === targetMonth && y === targetYear; }); }
+                }
+                if (search) { const lowerSearch = search.toLowerCase(); result = result.filter(e => e.brand.toLowerCase().includes(lowerSearch) || e.company.toLowerCase().includes(lowerSearch) || e.platform?.toLowerCase().includes(lowerSearch) || (e.creator && getNickname(e.creator, team).toLowerCase().includes(lowerSearch)) || (e.inCharge && (Array.isArray(e.inCharge) ? e.inCharge.some(p => p.toLowerCase().includes(lowerSearch)) : e.inCharge.toLowerCase().includes(lowerSearch)))); }
+                return result;
+            }, [events, search, filterType, selectedMonth, team, statusFilter]);
+
+            const renderNicknames = (data) => { if (!data) return '-'; const list = Array.isArray(data) ? data : [data]; return list.map(name => getNickname(name, team)).join(', '); };
+            const tabs = ['All', 'Confirmed', 'Pending', 'Cancelled', 'Done'];
+
+            return (
+                <div className="space-y-6 pb-20 sm:pb-0">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                            <h2 className="text-2xl font-bold text-slate-800">Event Schedule</h2>
+                            <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
+                                <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
+                                    <button onClick={() => setFilterType('current')} className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${filterType === 'current' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>Current Month</button>
+                                    <button onClick={() => setFilterType('all')} className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${filterType === 'all' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>All</button>
+                                    <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+                                    <div className="relative flex items-center w-full sm:w-auto">
+                                        <CalendarDays size={14} className="absolute left-2 text-slate-400 pointer-events-none" />
+                                        <input type="month" value={selectedMonth} onChange={(e) => { setSelectedMonth(e.target.value); setFilterType('specific'); }} className={`pl-7 pr-2 py-1 text-sm border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition-all w-full sm:w-32 ${filterType === 'specific' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`} />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 flex-1 sm:flex-none w-full sm:w-auto">
+                                    <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-2.5 text-slate-400" size={18} /><input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
+                                    {isAdmin && <button onClick={onAdd} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap justify-center"><Plus size={18} /> <span className="hidden sm:inline">Add Event</span></button>}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 border-b border-slate-200 overflow-x-auto pb-1 custom-scrollbar">
+                            {tabs.map((tab) => (<button key={tab} onClick={() => setStatusFilter(tab)} className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-all border-b-2 ${statusFilter === tab ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}>{tab}</button>))}
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm whitespace-nowrap">
+                                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                                    <tr><th className="px-4 py-3">Date & Time</th><th className="px-4 py-3">Day</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Company</th><th className="px-4 py-3">Platform</th><th className="px-4 py-3">Brand</th><th className="px-4 py-3">Creator</th><th className="px-4 py-3">Venue</th><th className="px-4 py-3">Setup</th><th className="px-4 py-3">In-Charge</th><th className="px-4 py-3">Backup</th>{isAdmin && <th className="px-4 py-3 text-right">Actions</th>}</tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {filteredEvents.map((ev) => (
+                                        <tr key={ev.id} className="hover:bg-slate-50/80 transition-colors">
+                                            <td className="px-4 py-3 text-slate-700">{formatDateForDisplay(ev.date, ev.time)}</td>
+                                            <td className="px-4 py-3 text-slate-500">{getDayName(ev.date)}</td>
+                                            <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getStatusColor(ev.status)}`}>{ev.status}</span></td>
+                                            <td className="px-4 py-3"><span className={`font-bold ${getCompanyColor(ev.company)}`}>{ev.company}</span></td>
+                                            <td className="px-4 py-3 font-medium text-slate-600">{ev.platform || '-'}</td>
+                                            <td className="px-4 py-3 font-medium text-slate-800">{ev.brand}</td>
+                                            <td className="px-4 py-3 text-slate-600">{getNickname(ev.creator, team)}</td>
+                                            <td className="px-4 py-3 text-slate-600">{ev.venue}</td>
+                                            <td className="px-4 py-3 text-slate-600">{ev.setup}</td>
+                                            <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate" title={renderNicknames(ev.inCharge)}>{renderNicknames(ev.inCharge)}</td>
+                                            <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={renderNicknames(ev.backup)}>{renderNicknames(ev.backup)}</td>
+                                            {isAdmin && <td className="px-4 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => onEdit(ev)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Edit2 size={16} /></button><button onClick={() => onDelete(ev.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></td>}
+                                        </tr>
+                                    ))}
+                                    {filteredEvents.length === 0 && <tr><td colSpan={isAdmin ? "12" : "11"} className="px-6 py-10 text-center text-slate-500 italic">No events found matching your criteria.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ReportsView = ({ events, team, companies }) => {
+            const [selectedCompany, setSelectedCompany] = React.useState('All');
+            const [reportType, setReportType] = React.useState('monthly'); 
+            const [selectedDate, setSelectedDate] = React.useState(getManilaMonth()); 
+            const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
+
+            const generateReport = () => {
+                let reportEvents = events.filter(e => e.status === 'Done');
+                if (selectedCompany !== 'All') { reportEvents = reportEvents.filter(e => e.company === selectedCompany); }
+                if (reportType === 'monthly') { const [year, month] = selectedDate.split('-'); reportEvents = reportEvents.filter(e => { const d = new Date(e.date); return d.getFullYear() === parseInt(year) && d.getMonth() === parseInt(month) - 1; }); } 
+                else if (reportType === 'yearly') { reportEvents = reportEvents.filter(e => new Date(e.date).getFullYear() === parseInt(selectedYear)); }
+
+                const ALLOWED_ROLES = ['Live Operator Lead', 'Live Operator Trainer', 'Live Operator'];
+                const activeReportEvents = reportEvents.filter(e => e.status !== 'Cancelled');
+                const eligibleMembers = team.filter(m => ALLOWED_ROLES.includes(m.role));
+                const assignmentData = eligibleMembers.map(member => {
+                    let inChargeCount = 0; let backupCount = 0;
+                    activeReportEvents.forEach(ev => {
+                        const icList = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
+                        const bList = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
+                        if (icList.includes(member.name)) inChargeCount++;
+                        if (bList.includes(member.name)) backupCount++;
+                    });
+                    return { ...member, inChargeCount, backupCount, total: inChargeCount + backupCount };
+                }).filter(member => member.total > 0);
+                
+                const assignedStatsGroups = groupMembersByRole(assignmentData);
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) return alert("Please allow popups to generate report.");
+
+                const periodString = reportType === 'all' ? 'All Time' : reportType === 'monthly' ? selectedDate : selectedYear;
+                const reportTitle = `Multi-Channel Network (MCN) Report`;
+                const filename = `mcn_report_${selectedCompany}_${periodString}.pdf`.toLowerCase().replace(/[^a-z0-9.]/g, '_');
+
+                const htmlContent = `<html><head><title>${reportTitle}</title><script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\/script><style> * { box-sizing: border-box; } body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f1f5f9; padding: 0; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; -webkit-font-smoothing: antialiased; } #report-container { background: white; padding: 20px 40px; width: 100%; max-width: 100%; box-shadow: none; } h1 { color: #1e293b; margin: 0 0 15px 0; font-size: 22px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #334155; padding-bottom: 10px; } .header-info { display: flex; justify-content: space-between; margin-bottom: 25px; font-size: 12px; font-weight: bold; color: #475569; background: #f8fafc; padding: 8px 12px; border-radius: 4px; border: 1px solid #e2e8f0; } h2 { color: #334155; font-size: 16px; margin-bottom: 12px; margin-top: 20px; border-left: 4px solid #4f46e5; padding-left: 10px; } table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 20px; table-layout: fixed; } th, td { border: 1px solid #e2e8f0; padding: 6px 5px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; } th { background-color: #f1f5f9; color: #334155; font-weight: bold; text-transform: uppercase; font-size: 9px; } tr:nth-child(even) { background-color: #f8fafc; } tr { page-break-inside: avoid; } .role-header { background-color: #e2e8f0; font-weight: bold; color: #1e293b; text-transform: uppercase; font-size: 10px; padding: 5px 8px; } .controls { margin-bottom: 0; text-align: center; width: 100%; position: sticky; top: 0; background: #f1f5f9; padding: 15px; z-index: 100; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-bottom: 1px solid #e2e8f0; } .download-btn { background: #4f46e5; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2); transition: all 0.2s; display: flex; align-items: center; gap: 8px; margin: 0 auto; } .download-btn:hover { background: #4338ca; transform: translateY(-1px); } .download-btn:disabled { background: #94a3b8; cursor: not-allowed; transform: none; } .status { margin-top: 10px; color: #64748b; font-size: 14px; font-weight: 500; } .page-break { page-break-before: always; height: 20px; display: block; } </style></head><body><div class="controls" data-html2canvas-ignore="true"><button id="btn" class="download-btn" onclick="generatePDF()">Download Report (PDF)</button><div id="status" class="status">Initializing...</div></div><div id="report-container"><h1>${reportTitle}</h1><div class="header-info"><span>COMPANY: ${selectedCompany.toUpperCase()}</span><span>PERIOD: ${periodString}</span></div><h2>Event Schedule List</h2><table><thead><tr><th width="9%">Date</th><th width="7%">Time</th><th width="8%">Company</th><th width="8%">Platform</th><th width="10%">Brand</th><th width="10%">Creator</th><th width="10%">Venue</th><th width="8%">Setup</th><th width="15%">In-Charge</th><th width="15%">Backup</th></tr></thead><tbody>${reportEvents.length > 0 ? reportEvents.map(ev => `<tr><td>${new Date(ev.date).toLocaleDateString()}</td><td>${ev.time}</td><td>${ev.company}</td><td>${ev.platform || '-'}</td><td><strong>${ev.brand}</strong></td><td>${getNickname(ev.creator, team)}</td><td>${ev.venue}</td><td>${ev.setup}</td><td>${Array.isArray(ev.inCharge) ? ev.inCharge.join(', ') : (ev.inCharge || '')}</td><td>${Array.isArray(ev.backup) ? ev.backup.join(', ') : (ev.backup || '')}</td></tr>`).join('') : '<tr><td colspan="10" style="text-align:center; padding: 20px;">No events found for this selection.</td></tr>'}</tbody></table><div class="page-break"></div><h2>Assigned Event Counter</h2><table><thead><tr><th width="25%">Full Name</th><th width="15%">Nickname</th><th width="20%">Role</th><th width="15%" style="text-align:center">In-Charge</th><th width="15%" style="text-align:center">Backup</th><th width="10%" style="text-align:center">Total</th></tr></thead><tbody>${assignedStatsGroups.map(group => `<tr><td colspan="6" class="role-header">${group.role}</td></tr>${group.members.map(member => `<tr><td><strong>${member.name}</strong></td><td>${member.nickname}</td><td>${member.role}</td><td style="text-align:center">${member.inChargeCount}</td><td style="text-align:center">${member.backupCount}</td><td style="text-align:center"><strong>${member.total}</strong></td></tr>`).join('')}`).join('')}${assignedStatsGroups.length === 0 ? '<tr><td colspan="6" style="text-align:center; padding: 20px;">No assigned data available for this period.</td></tr>' : ''}</tbody></table></div><script>function generatePDF() { const element = document.getElementById('report-container'); const btn = document.getElementById('btn'); const status = document.getElementById('status'); btn.disabled = true; status.innerText = 'Generating PDF... Please wait.'; const opt = { margin: 0.2, filename: '${filename}', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, letterRendering: true, scrollY: 0 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }, pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } }; html2pdf().set(opt).from(element).save().then(() => { btn.disabled = false; status.innerText = 'Download started! You can close this window.'; }).catch(err => { console.error(err); btn.disabled = false; status.innerText = 'Error generating PDF. Please try again.'; }); } window.onload = function() { document.getElementById('status').innerText = 'Ready to download'; setTimeout(generatePDF, 1000); };<\/script></body></html>`;
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto space-y-6 pb-20 sm:pb-0">
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
+                        <div className="flex flex-col sm:flex-row items-center gap-4 mb-6 text-center sm:text-left"><div className="p-3 bg-indigo-50 rounded-xl text-indigo-600"><FileText size={32} /></div><div><h2 className="text-2xl font-bold text-slate-800">Generate Reports</h2><p className="text-slate-500">Export completed event data to PDF.</p></div></div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            <div><label className="block text-sm font-medium text-slate-700 mb-2">Company</label><select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"><option value="All">All Companies</option>{companies.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                            <div><label className="block text-sm font-medium text-slate-700 mb-2">Time Range</label><div className="flex gap-2"><select value={reportType} onChange={(e) => setReportType(e.target.value)} className="w-1/3 px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="all">All Data</option></select>{reportType === 'monthly' && <input type="month" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-2/3 px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" />}{reportType === 'yearly' && <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="w-2/3 px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500">{[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}</select>}{reportType === 'all' && <div className="w-2/3 bg-slate-50 border border-slate-200 rounded-xl flex items-center px-4 text-slate-400 text-sm">Entire History</div>}</div></div>
+                        </div>
+                        <div className="flex justify-center sm:justify-end"><button onClick={generateReport} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95"><Download size={20} /> Download Report (PDF)</button></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SettingsView = ({ config, currentUser, onUpdateConfig, onResetData, onSaveProfile, onBackup, onRestore }) => {
+            const [activeTab, setActiveTab] = React.useState('general');
+            const [profileForm, setProfileForm] = React.useState(config.adminProfile || { name: 'Administrator', nickname: 'Admin', password: '123' });
+            const [isTeamModalOpen, setIsTeamModalOpen] = React.useState(false);
+            const [editingMemberIndex, setEditingMemberIndex] = React.useState(null);
+            const [teamForm, setTeamForm] = React.useState(null);
+            const [showAllPasswords, setShowAllPasswords] = React.useState(false);
+            const [securityModal, setSecurityModal] = React.useState({ isOpen: false, type: null, file: null });
+            const [showProfileConfirm, setShowProfileConfirm] = React.useState(false);
+            const [deleteMemberIndex, setDeleteMemberIndex] = React.useState(null);
+            const fileInputRef = React.useRef(null);
+            const isAdmin = checkIsAdmin(currentUser);
+            const adminRoles = ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer']; // Added missing definition
+
+            React.useEffect(() => { if (currentUser) setProfileForm({ name: currentUser.name, nickname: currentUser.nickname, password: currentUser.password }); }, [currentUser]);
+            const updateList = (key, items) => { onUpdateConfig(key, items); };
+            const handleProfileSave = () => { setShowProfileConfirm(true); };
+            const performProfileSave = () => { onSaveProfile(profileForm); setShowProfileConfirm(false); alert('Profile updated successfully!'); };
+            const handleSaveTeamMember = (memberData) => { if (memberData.name && memberData.role) { let updatedTeam = [...(config.team || [])]; if (editingMemberIndex !== null) updatedTeam[editingMemberIndex] = memberData; else updatedTeam.push(memberData); onUpdateConfig('team', updatedTeam); setIsTeamModalOpen(false); setEditingMemberIndex(null); setTeamForm(null); } };
+            const openAddTeamModal = () => { setEditingMemberIndex(null); setTeamForm(null); setIsTeamModalOpen(true); };
+            const openEditTeamModal = (index) => { setEditingMemberIndex(index); setTeamForm(config.team[index]); setIsTeamModalOpen(true); };
+            const handleDeleteTeamMember = (index) => { setDeleteMemberIndex(index); };
+            const confirmDeleteMember = () => { if (deleteMemberIndex !== null) { const updatedTeam = config.team.filter((_, i) => i !== deleteMemberIndex); onUpdateConfig('team', updatedTeam); setDeleteMemberIndex(null); } };
+            const handleFileChange = (e) => { const file = e.target.files[0]; if (file) setSecurityModal({ isOpen: true, type: 'restore', file: file }); e.target.value = null; };
+            const handleActionClick = (type) => { setSecurityModal({ isOpen: true, type: type, file: null }); };
+            const verifyPasswordAndExecute = (inputPassword, callback) => { let truePassword = ''; if (currentUser.name === config.adminProfile.name) truePassword = config.adminProfile.password; else { const member = config.team.find(m => m.name === currentUser.name); if (member) truePassword = member.password; } if (inputPassword === truePassword) { callback(true); if (securityModal.type === 'backup') onBackup(); else if (securityModal.type === 'reset') onResetData(); else if (securityModal.type === 'restore' && securityModal.file) onRestore(securityModal.file); } else callback(false); };
+            const sortedTeam = React.useMemo(() => { const roleOrder = ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer', 'Live Operator']; return [...config.team].sort((a, b) => { const roleA = roleOrder.indexOf(a.role); const roleB = roleOrder.indexOf(b.role); if (roleA !== roleB) return (roleA === -1 ? 999 : roleA) - (roleB === -1 ? 999 : roleB); return a.name.localeCompare(b.name); }); }, [config.team]);
+            
+            const visibleTabs = [{ id: 'general', label: 'Profile Info', icon: User }, ...(isAdmin ? [ { id: 'config', label: 'Configuration', icon: Settings }, { id: 'team', label: 'Team Management', icon: Users }, { id: 'data', label: 'Data Management', icon: Database } ] : [])];
+
+            const renderTabContent = () => {
+                switch(activeTab) {
+                    case 'general': return (<div className="space-y-6"><h3 className="text-lg font-bold">Profile Information Overview</h3><div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4 relative"><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-indigo-200">{profileForm.nickname.charAt(0).toUpperCase()}</div><div><h4 className="font-bold text-slate-800 text-lg">{profileForm.name}</h4><span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">{checkIsAdmin(currentUser) ? 'Super Admin / Lead' : 'Live Operator'}</span></div></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input type="text" value={profileForm.name} onChange={(e) => setProfileForm({...profileForm, name: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Nickname</label><input type="text" value={profileForm.nickname} onChange={(e) => setProfileForm({...profileForm, nickname: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div><div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><PasswordInput value={profileForm.password} onChange={(e) => setProfileForm({...profileForm, password: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div></div><div className="flex justify-end pt-4"><button onClick={handleProfileSave} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 shadow-md"><Save size={18} /> Save Changes</button></div><ConfirmationModal isOpen={showProfileConfirm} onClose={() => setShowProfileConfirm(false)} onConfirm={performProfileSave} title="Save Profile Changes" message="Are you sure you want to update your profile information?" /></div></div>);
+                    case 'config': return (<div className="space-y-6"><div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-sm"><RefreshCw size={16} className="inline mr-2" /> Configuration Management: Updates made here immediately reflect in dropdowns.</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><ListManager title="Companies" items={config.companies} onAdd={(item) => updateList('companies', [...config.companies, item])} onDelete={(idx) => updateList('companies', config.companies.filter((_, i) => i !== idx))} /><ListManager title="Platforms" items={config.platforms} onAdd={(item) => updateList('platforms', [...config.platforms, item])} onDelete={(idx) => updateList('platforms', config.platforms.filter((_, i) => i !== idx))} /><ListManager title="Venues" items={config.venues} onAdd={(item) => updateList('venues', [...config.venues, item])} onDelete={(idx) => updateList('venues', config.venues.filter((_, i) => i !== idx))} /><ListManager title="Setups" items={config.setups} onAdd={(item) => updateList('setups', [...config.setups, item])} onDelete={(idx) => updateList('setups', config.setups.filter((_, i) => i !== idx))} /><ListManager title="Roles" items={config.roles} onAdd={(item) => updateList('roles', [...config.roles, item])} onDelete={(idx) => updateList('roles', config.roles.filter((_, i) => i !== idx))} /></div></div>);
+                    case 'team': return (<div className="space-y-6"><div className="flex justify-between items-center"><h3 className="text-lg font-bold text-slate-800">Team Management</h3><div className="flex gap-3"><button onClick={() => setShowAllPasswords(!showAllPasswords)} className="flex items-center gap-2 px-3 py-2 border border-slate-300 text-slate-600 font-medium rounded-lg hover:bg-slate-50 transition-colors shadow-sm text-sm hidden sm:flex">{showAllPasswords ? <EyeOff size={16} /> : <Eye size={16} />}{showAllPasswords ? 'Hide' : 'Show'}</button><button onClick={openAddTeamModal} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"><Plus size={18} /> Add User</button></div></div><div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-600 border-b border-slate-200"><tr><th className="px-4 py-3 font-semibold">Name</th><th className="px-4 py-3 font-semibold hidden sm:table-cell">Nickname</th><th className="px-4 py-3 font-semibold">Role</th><th className="px-4 py-3 font-semibold hidden sm:table-cell">Password</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{sortedTeam.map((member, idx) => (<tr key={idx} className="hover:bg-slate-50/50"><td className="px-4 py-3 font-medium text-slate-800">{member.name}</td><td className="px-4 py-3 text-slate-600 hidden sm:table-cell">{member.nickname}</td><td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-semibold ${adminRoles.includes(member.role) ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{member.role}</span></td><td className="px-4 py-3 text-slate-500 hidden sm:table-cell gap-1 font-mono text-xs"><div className="flex items-center gap-1"><Lock size={12} className={showAllPasswords ? 'text-indigo-400' : 'text-slate-400'} />{showAllPasswords ? member.password : '••••••'}</div></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => { const originalIndex = config.team.findIndex(m => m.name === member.name); openEditTeamModal(originalIndex); }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Edit2 size={16} /></button><button onClick={() => { const originalIndex = config.team.findIndex(m => m.name === member.name); handleDeleteTeamMember(originalIndex); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></td></tr>))}</tbody></table></div><TeamMemberModal isOpen={isTeamModalOpen} onClose={() => setIsTeamModalOpen(false)} onSave={handleSaveTeamMember} initialData={teamForm} roles={config.roles} /><ConfirmationModal isOpen={deleteMemberIndex !== null} onClose={() => setDeleteMemberIndex(null)} onConfirm={confirmDeleteMember} title="Delete Team Member" message="Are you sure you want to remove this user? This action cannot be undone." isDelete={true} /></div>);
+                    case 'data': return (<div className="space-y-6"><h3 className="text-lg font-bold text-slate-800">Data Management</h3><div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4"><h4 className="font-bold text-slate-700">Backup & Restore</h4><p className="text-sm text-slate-500">Download a copy of your events and settings, or restore from a previous backup file.</p><div className="flex flex-col sm:flex-row gap-4 pt-2"><button onClick={() => handleActionClick('backup')} className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"><Download size={18} /> Download Backup</button><div className="relative"><input type="file" accept=".json" ref={fileInputRef} onChange={handleFileChange} className="hidden" /><button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"><Upload size={18} /> Restore Data</button></div></div></div><div className="p-6 border border-red-200 bg-red-50 rounded-xl"><h3 className="text-lg font-bold text-red-800 mb-2 flex items-center gap-2"><AlertTriangle size={20} /> Danger Zone</h3><p className="text-red-600 mb-4 text-sm">Factory reset will delete ALL events from the database. This action cannot be undone.</p><button onClick={() => handleActionClick('reset')} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 shadow-sm transition-colors">Factory Reset</button></div><SecurityModal isOpen={securityModal.isOpen} onClose={() => setSecurityModal({ ...securityModal, isOpen: false })} onConfirm={verifyPasswordAndExecute} actionType={securityModal.type} /></div>);
+                    default: return null;
+                }
+            };
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pb-20 sm:pb-0">
+                    <div className="col-span-1 bg-white rounded-xl border border-slate-200 overflow-hidden h-fit flex flex-row md:flex-col overflow-x-auto">
+                        {visibleTabs.map(tab => (
+                            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left whitespace-nowrap md:whitespace-normal ${activeTab === tab.id ? 'bg-indigo-50 text-indigo-700 border-b-4 md:border-b-0 md:border-r-4 border-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}><tab.icon size={18} />{tab.label}</button>
+                        ))}
+                    </div>
+                    <div className="col-span-1 md:col-span-3 bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm">{renderTabContent()}</div>
+                </div>
+            );
+        };
+
+        const EventModal = ({ isOpen, onClose, onSave, initialData, config }) => {
+            if (!isOpen) return null;
+
+            const [formData, setFormData] = React.useState({
+                date: getManilaToday(),
+                time: '09:00',
+                status: 'Pending',
+                company: config.companies[0] || '',
+                platform: config.platforms[0] || '',
+                brand: '',
+                creator: '',
+                venue: 'TBC',
+                setup: 'Greenscreen',
+                backup: [],
+                inCharge: [],
+                ...initialData
+            });
+            const [showConfirm, setShowConfirm] = React.useState(false);
+
+            React.useEffect(() => {
+                if (initialData) {
+                    setFormData({
+                        ...initialData,
+                        inCharge: Array.isArray(initialData.inCharge) ? initialData.inCharge : (initialData.inCharge ? [initialData.inCharge] : []),
+                        backup: Array.isArray(initialData.backup) ? initialData.backup : (initialData.backup ? [initialData.backup] : [])
+                    });
+                } else {
+                    setFormData({
+                        date: getManilaToday(),
+                        time: '09:00',
+                        status: 'Pending',
+                        company: config.companies[0] || '',
+                        platform: config.platforms[0] || '',
+                        brand: '',
+                        creator: '',
+                        venue: 'TBC',
+                        setup: 'Greenscreen',
+                        backup: [],
+                        inCharge: [],
+                    });
+                }
+            }, [initialData, isOpen, config]);
+
+            const handleSubmit = (e) => { e.preventDefault(); setShowConfirm(true); };
+            const handleConfirm = () => { onSave(formData); setShowConfirm(false); };
+
+            return (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col relative">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                            <h2 className="text-xl font-bold text-slate-800">{initialData ? 'Edit Event' : 'New Event'}</h2>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                        </div>
+                        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 custom-scrollbar pb-32 rounded-b-2xl">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Date</label><input required type="date" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /><p className="text-xs text-indigo-600 mt-1 font-medium">{getDayName(formData.date)}</p></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Time (12h)</label><input required type="time" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} /></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Status</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}><option>Confirm</option><option>Pending</option><option>Cancelled</option><option>Done</option></select></div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Company</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.company} onChange={e => setFormData({...formData, company: e.target.value})}>{config.companies.map(c => <option key={c}>{c}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Platform</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.platform} onChange={e => setFormData({...formData, platform: e.target.value})}>{config.platforms.map(p => <option key={p}>{p}</option>)}</select></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Brand</label><input required type="text" placeholder="Brand Name" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.brand} onChange={e => setFormData({...formData, brand: e.target.value})} /></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Creator</label><input required type="text" placeholder="Creator Name" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.creator} onChange={e => setFormData({...formData, creator: e.target.value})} /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Venue</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.venue} onChange={e => setFormData({...formData, venue: e.target.value})}>{config.venues.map(v => <option key={v}>{v}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Setup</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.setup} onChange={e => setFormData({...formData, setup: e.target.value})}>{config.setups.map(s => <option key={s}>{s}</option>)}</select></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <SearchableMultiSelect label="In-Charge" options={config.team} selected={formData.inCharge} onChange={(val) => setFormData({...formData, inCharge: val})} disabledOptions={formData.backup} />
+                                <SearchableMultiSelect label="Backup" options={config.team} selected={formData.backup} onChange={(val) => setFormData({...formData, backup: val})} disabledOptions={formData.inCharge} />
+                            </div>
+                            <div className="pt-4 flex gap-3">
+                                <button type="button" onClick={onClose} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">Cancel</button>
+                                <button type="submit" className="flex-1 px-4 py-3 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-lg shadow-indigo-200">{initialData ? 'Save Changes' : 'Create Event'}</button>
+                            </div>
+                        </form>
+                        <ConfirmationModal isOpen={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={handleConfirm} title={initialData ? "Save Event Changes" : "Create New Event"} message={`Are you sure you want to ${initialData ? 'save changes to' : 'create'} this event?`} />
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP ---
+        const App = () => {
+            const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+            const [user, setUser] = React.useState(null);
+            const [currentUserProfile, setCurrentUserProfile] = React.useState(null); 
+            const [activeMenu, setActiveMenu] = React.useState('dashboard');
+            const [events, setEvents] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [isModalOpen, setIsModalOpen] = React.useState(false);
+            const [editingEvent, setEditingEvent] = React.useState(null);
+            const [deleteConfirmation, setDeleteConfirmation] = React.useState({ isOpen: false, id: null });
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false); // Mobile Menu State
+
+            const [config, setConfig] = React.useState({
+                companies: ['MCom', 'StarTok', 'Sync'],
+                platforms: ['TikTok', 'Shopee', 'Lazada', 'Instagram', 'Facebook'],
+                venues: ['Pantry', 'Conference Area', '17th Floor', '29th Floor', 'TSP Liveroom', 'TBC', 'One Neo'],
+                setups: ['Greenscreen', 'Set Design'],
+                roles: ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer', 'Live Operator'],
+                team: [
+                    { name: 'John Smith', nickname: 'John', role: 'Supervisor', password: '123' },
+                    { name: 'Sarah Connor', nickname: 'Sarah', role: 'Live Operator Lead', password: '123' },
+                    { name: 'Mike Ross', nickname: 'Mike', role: 'Live Operator', password: '123' }
+                ],
+                adminProfile: { name: 'Administrator', nickname: 'Admin', password: '123' }
+            });
+
+            React.useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        // Directly sign in anonymously to avoid token mismatch with your custom config
+                        await signInAnonymously(auth);
+                    } catch (error) {
+                        console.error("Auth error:", error);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); if (!u) setLoading(false); });
+                return () => unsubscribe();
+            }, []);
+
+            React.useEffect(() => {
+                if (!user) return;
+                const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events');
+                
+                // Added error handling for snapshot listener
+                const unsubscribeEvents = onSnapshot(eventsRef, (snapshot) => { 
+                    const fetchedEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
+                    fetchedEvents.sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`)); 
+                    setEvents(fetchedEvents); 
+                    setLoading(false); 
+                }, (error) => {
+                    console.error("Error fetching events:", error);
+                    alert("Error fetching data: " + error.message + "\nPlease check your Firebase Console > Firestore Database > Rules.");
+                    setLoading(false);
+                });
+
+                const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'admin_settings', 'config');
+                const unsubscribeConfig = onSnapshot(configRef, (docSnap) => { 
+                    if (docSnap.exists()) setConfig(docSnap.data()); 
+                }, (error) => {
+                    console.error("Error fetching config:", error);
+                });
+                
+                return () => { unsubscribeEvents(); unsubscribeConfig(); };
+            }, [user]);
+
+            const handleSaveEvent = async (data) => { 
+                if (!user) return; 
+                const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events'); 
+                try { 
+                    if (editingEvent) await updateDoc(doc(eventsRef, editingEvent.id), { ...data, updatedAt: serverTimestamp() }); 
+                    else await addDoc(eventsRef, { ...data, createdAt: serverTimestamp() }); 
+                    setIsModalOpen(false); 
+                    setEditingEvent(null); 
+                } catch (err) { 
+                    console.error("Save error", err);
+                    alert("Failed to save event: " + err.message); // Added Alert
+                } 
+            };
+            
+            const handleStatusUpdate = async (eventId, newStatus) => { 
+                if (!user) return; 
+                const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events'); 
+                try { await updateDoc(doc(eventsRef, eventId), { status: newStatus, updatedAt: serverTimestamp() }); } 
+                catch (err) { 
+                    console.error("Status update error", err); 
+                    alert("Failed to update status: " + err.message); // Added Alert
+                } 
+            };
+            
+            const confirmDeleteEvent = (id) => { setDeleteConfirmation({ isOpen: true, id }); };
+            
+            const handleDeleteEvent = async () => { 
+                const id = deleteConfirmation.id; 
+                if (!user || !id) return; 
+                try { 
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'admin_events', id)); 
+                    setDeleteConfirmation({ isOpen: false, id: null }); 
+                } catch (err) { 
+                    console.error("Delete error", err); 
+                    alert("Failed to delete event: " + err.message); // Added Alert
+                } 
+            };
+            
+            const handleResetData = async () => { 
+                if (!user) return; 
+                try { 
+                    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events')); 
+                    const snapshot = await getDocs(q); 
+                    const batch = writeBatch(db); 
+                    snapshot.docs.forEach((doc) => batch.delete(doc.ref)); 
+                    await batch.commit(); 
+                    alert('System reset complete.'); 
+                } catch (err) { 
+                    console.error("Reset error", err); 
+                    alert("Failed to reset data: " + err.message); // Added Alert
+                } 
+            };
+            
+            const handleUpdateConfig = async (key, value) => { 
+                if (!user) return; 
+                const newConfig = { ...config, [key]: value }; 
+                setConfig(newConfig); 
+                try { 
+                    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'admin_settings', 'config'); 
+                    await setDoc(configRef, newConfig, { merge: true }); 
+                } catch (err) { 
+                    console.error("Config save error", err); 
+                    alert("Failed to save settings: " + err.message); // Added Alert
+                } 
+            };
+
+            const handleSaveProfile = async (profileData) => { if (!user) return; if (checkIsAdmin(currentUserProfile) && currentUserProfile.name === config.adminProfile.name) { handleUpdateConfig('adminProfile', profileData); } else { const updatedTeam = config.team.map(member => member.name === currentUserProfile.name ? { ...member, ...profileData } : member); handleUpdateConfig('team', updatedTeam); } setCurrentUserProfile({ ...currentUserProfile, ...profileData }); };
+            
+            const handleBackup = () => { const backupData = { config: config, events: events, exportedAt: new Date().toISOString() }; const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `event_manager_backup_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); };
+            
+            const handleRestore = async (file) => { 
+                if (!user) return; 
+                const reader = new FileReader(); 
+                reader.onload = async (e) => { 
+                    try { 
+                        const backup = JSON.parse(e.target.result); 
+                        
+                        // 1. Rewrite Config (Overwrite existing)
+                        if (backup.config) { 
+                            const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'admin_settings', 'config'); 
+                            await setDoc(configRef, backup.config); 
+                            setConfig(backup.config); 
+                        } 
+                        
+                        // 2. Rewrite Events (Wipe all current data, then insert backup)
+                        if (backup.events && Array.isArray(backup.events)) { 
+                            const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events'); 
+                            
+                            // A. Get all existing documents
+                            const q = query(eventsRef); 
+                            const snapshot = await getDocs(q); 
+                            
+                            // B. Delete in batches of 500 (Firestore limit)
+                            const DELETE_BATCH_SIZE = 500;
+                            const allDocs = snapshot.docs;
+                            
+                            for (let i = 0; i < allDocs.length; i += DELETE_BATCH_SIZE) {
+                                const batch = writeBatch(db);
+                                const chunk = allDocs.slice(i, i + DELETE_BATCH_SIZE);
+                                chunk.forEach(doc => batch.delete(doc.ref));
+                                await batch.commit();
+                            }
+                            
+                            // C. Add new documents from backup
+                            for (const ev of backup.events) { 
+                                const { id, ...eventData } = ev; 
+                                await addDoc(eventsRef, { ...eventData, restoredAt: serverTimestamp() }); 
+                            } 
+                        } 
+                        alert('Restore complete! Database has been rewritten.'); 
+                    } catch (err) { 
+                        console.error("Restore failed:", err); 
+                        alert('Error restoring file. Please ensure the file is valid JSON.'); 
+                    } 
+                }; 
+                reader.readAsText(file); 
+            };
+
+            if (!isAuthenticated) return <LoginScreen onLogin={(profile) => { setIsAuthenticated(true); setCurrentUserProfile(profile); }} adminProfile={config.adminProfile} team={config.team} />;
+            if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-100">Loading Admin Portal...</div>;
+
+            const displayName = currentUserProfile?.name || config.adminProfile.name;
+            const displayInitial = (currentUserProfile?.nickname || config.adminProfile.nickname || 'A').charAt(0).toUpperCase();
+
+            // Mobile Menu Toggle logic
+            const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
+            const closeMobileMenu = () => setIsMobileMenuOpen(false);
+
+            return (
+                <div className="flex h-screen bg-slate-100 font-sans text-slate-900 overflow-hidden relative">
+                    {/* Mobile Sidebar Overlay */}
+                    {isMobileMenuOpen && (
+                        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={closeMobileMenu}></div>
+                    )}
+
+                    {/* Sidebar - Responsive */}
+                    <aside className={`fixed lg:static inset-y-0 left-0 w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+                        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-white rounded-lg p-0.5 flex items-center justify-center">
+                                    <img src="icon-512.png" alt="Logo" className="w-full h-full object-contain rounded-md" onError={(e) => {e.target.style.display='none'; e.target.parentElement.className='bg-indigo-600 p-2 rounded-lg'; e.target.parentElement.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>'}} />
+                                </div>
+                                <div><h1 className="font-bold text-lg leading-tight">MCN Tracker</h1><p className="text-xs text-slate-400">Event Manager</p></div>
+                            </div>
+                            <button onClick={closeMobileMenu} className="lg:hidden text-slate-400 hover:text-white"><X size={24} /></button>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-2">
+                            {[{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, { id: 'event', label: 'Events', icon: CalendarIcon }, { id: 'reports', label: 'Reports', icon: FileBarChart }, { id: 'settings', label: 'Settings', icon: Settings }].map(item => (
+                                <button key={item.id} onClick={() => { setActiveMenu(item.id); closeMobileMenu(); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeMenu === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><item.icon size={20} /><span className="font-medium">{item.label}</span></button>
+                            ))}
+                        </nav>
+                        <div className="p-4 border-t border-slate-800"><button onClick={() => { setIsAuthenticated(false); setCurrentUserProfile(null); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-900/20 hover:text-red-400 transition-colors"><LogOut size={20} /><span className="font-medium">Logout</span></button></div>
+                    </aside>
+
+                    {/* Main Content */}
+                    <main className="flex-1 flex flex-col h-screen overflow-hidden w-full">
+                        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0">
+                            <div className="flex items-center gap-4">
+                                <button onClick={toggleMobileMenu} className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"><Menu size={24} /></button>
+                                <h2 className="text-xl font-bold text-slate-800 capitalize">{activeMenu}</h2>
+                            </div>
+                            <div className="flex items-center gap-4"><div className="text-right hidden sm:block"><p className="text-sm font-bold text-slate-800">{displayName}</p><p className="text-xs text-slate-500">{new Date(getManilaToday()).toDateString()}</p></div><div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold border border-indigo-200">{displayInitial}</div></div>
+                        </header>
+                        <div className="flex-1 overflow-auto p-4 sm:p-8 custom-scrollbar">
+                            <div className="max-w-7xl mx-auto">
+                                {activeMenu === 'dashboard' && <Dashboard events={events} team={config.team} onUpdateStatus={handleStatusUpdate} currentUser={currentUserProfile} />}
+                                {activeMenu === 'event' && <EventsView events={events} team={config.team} onAdd={() => { setEditingEvent(null); setIsModalOpen(true); }} onEdit={(ev) => { setEditingEvent(ev); setIsModalOpen(true); }} onDelete={confirmDeleteEvent} currentUser={currentUserProfile} />}
+                                {activeMenu === 'reports' && <ReportsView events={events} team={config.team} companies={config.companies} />}
+                                {activeMenu === 'settings' && <SettingsView config={config} currentUser={currentUserProfile} onUpdateConfig={handleUpdateConfig} onResetData={handleResetData} onSaveProfile={handleSaveProfile} onBackup={handleBackup} onRestore={handleRestore} />}
+                            </div>
+                        </div>
+                    </main>
+                    <EventModal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingEvent(null); }} onSave={handleSaveEvent} initialData={editingEvent} config={config} />
+                    <ConfirmationModal isOpen={deleteConfirmation.isOpen} onClose={() => setDeleteConfirmation({ isOpen: false, id: null })} onConfirm={handleDeleteEvent} title="Delete Event" message="Are you sure you want to permanently delete this event? This action cannot be undone." isDelete={true} />
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
