@@ -10,7 +10,7 @@
     <meta name="theme-color" content="#4f46e5">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-512.png">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -76,7 +76,7 @@
             Trash2, Edit2, X, Check, Filter, User, LogOut, Save, Users, Database, Briefcase, 
             MapPin, Monitor, AlertTriangle, RefreshCw, Eye, EyeOff, Lock, ChevronRight, 
             Download, Upload, ChevronDown, ShieldAlert, AlertCircle, CalendarDays, ListFilter, 
-            Clock, Printer, FileText, Smartphone, Menu, Wifi, WifiOff, UserCheck
+            Clock, Printer, FileText, Smartphone, Menu, Wifi, WifiOff, UserCheck, ArrowUpDown
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Firebase Init ---
@@ -286,8 +286,8 @@
             );
         };
 
-        // ... [Views] ...
-        
+        // --- VIEWS ---
+
         const TeamMemberModal = ({ isOpen, onClose, onSave, initialData, roles }) => {
             if (!isOpen) return null;
             const [formData, setFormData] = React.useState({ name: '', nickname: '', role: 'Live Operator', password: '' });
@@ -433,7 +433,7 @@
                         if (bList.includes(member.name)) { backupCount++; }
                     });
                     return { ...member, inChargeCount, backupCount, total: inChargeCount + backupCount };
-                });
+                }).filter(member => member.total > 0); // FILTER: Only show users with assignments
                 return groupMembersByRole(assignmentData);
             }, [filteredStatsEvents, team]);
 
@@ -545,23 +545,21 @@
                             </div>
                             {/* Desktop View */}
                             <div className="hidden sm:block overflow-x-auto">
-                                {todayConfirmed.length > 0 ? (
-                                    <table className="w-full text-left text-sm">
-                                        <thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Brand</th><th className="px-6 py-3">Venue</th><th className="px-6 py-3">In-Charge</th><th className="px-6 py-3">Backup</th><th className="px-6 py-3">Status</th></tr></thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {todayConfirmed.map(ev => (
-                                                <tr key={ev.id} className="hover:bg-slate-50/50">
-                                                    <td className="px-6 py-4 font-mono whitespace-nowrap">{ev.time}</td>
-                                                    <td className="px-6 py-4 font-medium">{ev.brand}</td>
-                                                    <td className="px-6 py-4">{ev.venue}</td>
-                                                    <td className="px-6 py-4 max-w-[150px] truncate" title={renderNicknames(ev.inCharge)}>{renderNicknames(ev.inCharge)}</td>
-                                                    <td className="px-6 py-4 text-slate-500 max-w-[150px] truncate" title={renderNicknames(ev.backup)}>{renderNicknames(ev.backup)}</td>
-                                                    <td className="px-6 py-4"><select value={ev.status} onChange={(e) => handleStatusSelect(e, ev.id)} disabled={!isAdmin} className={`px-2 py-1 rounded-full text-xs font-semibold outline-none border transition-all ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${getStatusColor(ev.status)}`}><option value="Confirm">Confirm</option><option value="Pending">Pending</option><option value="Cancelled">Cancelled</option><option value="Done">Done</option></select></td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                ) : <div className="p-8 text-center text-slate-500">No confirmed events scheduled for today.</div>}
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium"><tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Brand</th><th className="px-6 py-3">Venue</th><th className="px-6 py-3">In-Charge</th><th className="px-6 py-3">Backup</th><th className="px-6 py-3">Status</th></tr></thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {todayConfirmed.map(ev => (
+                                            <tr key={ev.id} className="hover:bg-slate-50/50">
+                                                <td className="px-6 py-4 font-mono whitespace-nowrap">{ev.time}</td>
+                                                <td className="px-6 py-4 font-medium">{ev.brand}</td>
+                                                <td className="px-6 py-4">{ev.venue}</td>
+                                                <td className="px-6 py-4 max-w-[150px] truncate" title={renderNicknames(ev.inCharge)}>{renderNicknames(ev.inCharge)}</td>
+                                                <td className="px-6 py-4 text-slate-500 max-w-[150px] truncate" title={renderNicknames(ev.backup)}>{renderNicknames(ev.backup)}</td>
+                                                <td className="px-6 py-4"><select value={ev.status} onChange={(e) => handleStatusSelect(e, ev.id)} disabled={!isAdmin} className={`px-2 py-1 rounded-full text-xs font-semibold outline-none border transition-all ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${getStatusColor(ev.status)}`}><option value="Confirm">Confirm</option><option value="Pending">Pending</option><option value="Cancelled">Cancelled</option><option value="Done">Done</option></select></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -578,25 +576,41 @@
             );
         };
 
-        const EventsView = ({ events, team, onAdd, onEdit, onDelete, currentUser }) => {
+        const EventsView = ({ events, team, companies, onAdd, onEdit, onDelete, currentUser }) => {
             const [search, setSearch] = React.useState('');
             const [filterType, setFilterType] = React.useState('current'); 
             const [selectedMonth, setSelectedMonth] = React.useState(getManilaMonth());
-            const [statusFilter, setStatusFilter] = React.useState('All');
+            const [statusFilter, setStatusFilter] = React.useState('Confirmed');
+            const [companyFilter, setCompanyFilter] = React.useState('All'); 
             const isAdmin = checkIsAdmin(currentUser);
 
             const filteredEvents = React.useMemo(() => {
-                let result = events;
-                if (statusFilter !== 'All') { const matchStatus = statusFilter === 'Confirmed' ? 'Confirm' : statusFilter; result = result.filter(e => e.status === matchStatus); }
+                let result = [...events]; 
+                
+                // 1. Status Filter
+                if (statusFilter !== 'All') { 
+                    const matchStatus = statusFilter === 'Confirmed' ? 'Confirm' : statusFilter; 
+                    result = result.filter(e => e.status === matchStatus); 
+                }
+
+                // 2. Company Filter
+                if (companyFilter !== 'All') {
+                    result = result.filter(e => e.company === companyFilter);
+                }
+
+                // 3. Time Filter
                 if (filterType !== 'all') {
                     let targetMonth, targetYear;
                     if (filterType === 'current') { const parts = getManilaMonth().split('-'); targetYear = parseInt(parts[0]); targetMonth = parseInt(parts[1]) - 1; }
                     else { if (selectedMonth) { const parts = selectedMonth.split('-'); targetYear = parseInt(parts[0]); targetMonth = parseInt(parts[1]) - 1; } }
                     if (targetYear !== undefined && targetMonth !== undefined) { result = result.filter(e => { if (!e.date) return false; const [y, m, d] = e.date.split('-').map(Number); return (m - 1) === targetMonth && y === targetYear; }); }
                 }
+
+                // 4. Search Filter
                 if (search) { const lowerSearch = search.toLowerCase(); result = result.filter(e => e.brand.toLowerCase().includes(lowerSearch) || e.company.toLowerCase().includes(lowerSearch) || e.platform?.toLowerCase().includes(lowerSearch) || (e.creator && getNickname(e.creator, team).toLowerCase().includes(lowerSearch)) || (e.inCharge && (Array.isArray(e.inCharge) ? e.inCharge.some(p => p.toLowerCase().includes(lowerSearch)) : e.inCharge.toLowerCase().includes(lowerSearch)))); }
+                
                 return result;
-            }, [events, search, filterType, selectedMonth, team, statusFilter]);
+            }, [events, search, filterType, selectedMonth, team, statusFilter, companyFilter]);
 
             const renderNicknames = (data) => { if (!data) return '-'; const list = Array.isArray(data) ? data : [data]; return list.map(name => getNickname(name, team)).join(', '); };
             const tabs = ['All', 'Confirmed', 'Pending', 'Cancelled', 'Done'];
@@ -642,7 +656,17 @@
                                         <input type="month" value={selectedMonth} onChange={(e) => { setSelectedMonth(e.target.value); setFilterType('specific'); }} className={`pl-7 pr-2 py-1 text-sm border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition-all w-full sm:w-32 ${filterType === 'specific' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`} />
                                     </div>
                                 </div>
-                                <div className="flex gap-2 flex-1 sm:flex-none w-full sm:w-auto">
+                                <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full sm:w-auto">
+                                    {/* Company Filter Dropdown */}
+                                    <select
+                                        value={companyFilter}
+                                        onChange={(e) => setCompanyFilter(e.target.value)}
+                                        className="w-full sm:w-40 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-700"
+                                    >
+                                        <option value="All">All Companies</option>
+                                        {companies.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+
                                     <div className="relative flex-1 sm:w-64"><Search className="absolute left-3 top-2.5 text-slate-400" size={18} /><input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
                                     {isAdmin && <button onClick={onAdd} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap justify-center"><Plus size={18} /> <span className="hidden sm:inline">Add Event</span></button>}
                                 </div>
@@ -664,7 +688,20 @@
                         <div className="hidden sm:block overflow-x-auto">
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                                    <tr><th className="px-4 py-3 whitespace-nowrap">Date & Time</th><th className="px-4 py-3 whitespace-nowrap">Day</th><th className="px-4 py-3 whitespace-nowrap">Status</th><th className="px-4 py-3 whitespace-nowrap">Company</th><th className="px-4 py-3 whitespace-nowrap">Platform</th><th className="px-4 py-3">Brand</th><th className="px-4 py-3">Creator</th><th className="px-4 py-3 whitespace-nowrap">Venue</th><th className="px-4 py-3 whitespace-nowrap">Setup</th><th className="px-4 py-3">In-Charge</th><th className="px-4 py-3">Backup</th>{isAdmin && <th className="px-4 py-3 text-right whitespace-nowrap">Actions</th>}</tr>
+                                    <tr>
+                                        <th className="px-4 py-3 whitespace-nowrap">Date & Time</th>
+                                        <th className="px-4 py-3 whitespace-nowrap">Day</th>
+                                        <th className="px-4 py-3 whitespace-nowrap">Status</th>
+                                        <th className="px-4 py-3 whitespace-nowrap">Company</th>
+                                        <th className="px-4 py-3 whitespace-nowrap">Platform</th>
+                                        <th className="px-4 py-3">Brand</th>
+                                        <th className="px-4 py-3">Creator</th>
+                                        <th className="px-4 py-3 whitespace-nowrap">Venue</th>
+                                        <th className="px-4 py-3 whitespace-nowrap">Setup</th>
+                                        <th className="px-4 py-3">In-Charge</th>
+                                        <th className="px-4 py-3">Backup</th>
+                                        {isAdmin && <th className="px-4 py-3 text-right whitespace-nowrap">Actions</th>}
+                                    </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {filteredEvents.map((ev) => (
@@ -894,9 +931,9 @@
             const [isModalOpen, setIsModalOpen] = React.useState(false);
             const [editingEvent, setEditingEvent] = React.useState(null);
             const [deleteConfirmation, setDeleteConfirmation] = React.useState({ isOpen: false, id: null });
-            const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false); 
-            const [error, setError] = React.useState(null); 
-            const [permissionError, setPermissionError] = React.useState(false);
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false); // Mobile Menu State
+            const [error, setError] = React.useState(null); // Add global error state
+            const [permissionError, setPermissionError] = React.useState(false); // Permission Error
 
             const [config, setConfig] = React.useState({
                 companies: ['MCom', 'StarTok', 'Sync'],
@@ -915,6 +952,7 @@
             React.useEffect(() => {
                 const initAuth = async () => {
                     try {
+                        // Directly sign in anonymously to avoid token mismatch with your custom config
                         await signInAnonymously(auth);
                     } catch (error) {
                         console.error("Auth error:", error);
@@ -957,16 +995,18 @@
                 if (!user) return;
                 const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'admin_events');
                 
+                // Added error handling for snapshot listener
                 const unsubscribeEvents = onSnapshot(eventsRef, (snapshot) => { 
                     const fetchedEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
                     fetchedEvents.sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`)); 
                     setEvents(fetchedEvents); 
                     setLoading(false); 
-                    setError(null);
+                    setError(null); // Clear error on success
                     setPermissionError(false);
                 }, (error) => {
                     console.error("Error fetching events:", error);
                     setLoading(false);
+                    // Set detailed error message for UI
                     if (error.code === 'permission-denied') {
                         setPermissionError(true);
                     } else {
@@ -979,6 +1019,7 @@
                     if (docSnap.exists()) setConfig(docSnap.data()); 
                 }, (error) => {
                     console.error("Error fetching config:", error);
+                    // Config error is less critical but still worth noting
                 });
                 
                 return () => { unsubscribeEvents(); unsubscribeConfig(); };
@@ -994,7 +1035,7 @@
                     setEditingEvent(null); 
                 } catch (err) { 
                     console.error("Save error", err);
-                    alert("Failed to save event: " + err.message);
+                    alert("Failed to save event: " + err.message); // Added Alert
                 } 
             };
             
@@ -1004,7 +1045,7 @@
                 try { await updateDoc(doc(eventsRef, eventId), { status: newStatus, updatedAt: serverTimestamp() }); } 
                 catch (err) { 
                     console.error("Status update error", err); 
-                    alert("Failed to update status: " + err.message);
+                    alert("Failed to update status: " + err.message); // Added Alert
                 } 
             };
             
@@ -1018,7 +1059,7 @@
                     setDeleteConfirmation({ isOpen: false, id: null }); 
                 } catch (err) { 
                     console.error("Delete error", err); 
-                    alert("Failed to delete event: " + err.message);
+                    alert("Failed to delete event: " + err.message); // Added Alert
                 } 
             };
             
@@ -1033,7 +1074,7 @@
                     alert('System reset complete.'); 
                 } catch (err) { 
                     console.error("Reset error", err); 
-                    alert("Failed to reset data: " + err.message);
+                    alert("Failed to reset data: " + err.message); // Added Alert
                 } 
             };
             
@@ -1046,22 +1087,11 @@
                     await setDoc(configRef, newConfig, { merge: true }); 
                 } catch (err) { 
                     console.error("Config save error", err); 
-                    alert("Failed to save settings: " + err.message);
+                    alert("Failed to save settings: " + err.message); // Added Alert
                 } 
             };
 
-            const handleSaveProfile = async (profileData) => { 
-                if (!user) return; 
-                if (checkIsAdmin(currentUserProfile) && currentUserProfile.name === config.adminProfile.name) { 
-                    handleUpdateConfig('adminProfile', profileData); 
-                } else { 
-                    const updatedTeam = config.team.map(member => member.name === currentUserProfile.name ? { ...member, ...profileData } : member); 
-                    handleUpdateConfig('team', updatedTeam); 
-                } 
-                const newProfile = { ...currentUserProfile, ...profileData };
-                setCurrentUserProfile(newProfile); 
-                localStorage.setItem('currentUserProfile', JSON.stringify(newProfile));
-            };
+            const handleSaveProfile = async (profileData) => { if (!user) return; if (checkIsAdmin(currentUserProfile) && currentUserProfile.name === config.adminProfile.name) { handleUpdateConfig('adminProfile', profileData); } else { const updatedTeam = config.team.map(member => member.name === currentUserProfile.name ? { ...member, ...profileData } : member); handleUpdateConfig('team', updatedTeam); } setCurrentUserProfile({ ...currentUserProfile, ...profileData }); localStorage.setItem('currentUserProfile', JSON.stringify({ ...currentUserProfile, ...profileData })); };
             
             const handleBackup = () => { const backupData = { config: config, events: events, exportedAt: new Date().toISOString() }; const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `event_manager_backup_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); };
             
@@ -1071,23 +1101,34 @@
                 reader.onload = async (e) => { 
                     try { 
                         const backup = JSON.parse(e.target.result); 
+                        
+                        // 1. Rewrite Config (Overwrite existing)
                         if (backup.config) { 
                             const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'admin_settings', 'config'); 
                             await setDoc(configRef, backup.config); 
                             setConfig(backup.config); 
                         } 
+                        
+                        // 2. Rewrite Events (Wipe all current data, then insert backup)
                         if (backup.events && Array.isArray(backup.events)) { 
                             const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'admin_events'); 
+                            
+                            // A. Get all existing documents
                             const q = query(eventsRef); 
                             const snapshot = await getDocs(q); 
+                            
+                            // B. Delete in batches of 500 (Firestore limit)
                             const DELETE_BATCH_SIZE = 500;
                             const allDocs = snapshot.docs;
+                            
                             for (let i = 0; i < allDocs.length; i += DELETE_BATCH_SIZE) {
                                 const batch = writeBatch(db);
                                 const chunk = allDocs.slice(i, i + DELETE_BATCH_SIZE);
                                 chunk.forEach(doc => batch.delete(doc.ref));
                                 await batch.commit();
                             }
+                            
+                            // C. Add new documents from backup
                             for (const ev of backup.events) { 
                                 const { id, ...eventData } = ev; 
                                 await addDoc(eventsRef, { ...eventData, restoredAt: serverTimestamp() }); 
@@ -1192,7 +1233,7 @@
                         <div className="flex-1 overflow-auto p-4 sm:p-8 custom-scrollbar">
                             <div className="max-w-7xl mx-auto">
                                 {activeMenu === 'dashboard' && <Dashboard events={events} team={config.team} onUpdateStatus={handleStatusUpdate} currentUser={currentUserProfile} />}
-                                {activeMenu === 'event' && <EventsView events={events} team={config.team} onAdd={() => { setEditingEvent(null); setIsModalOpen(true); }} onEdit={(ev) => { setEditingEvent(ev); setIsModalOpen(true); }} onDelete={confirmDeleteEvent} currentUser={currentUserProfile} />}
+                                {activeMenu === 'event' && <EventsView events={events} team={config.team} companies={config.companies} onAdd={() => { setEditingEvent(null); setIsModalOpen(true); }} onEdit={(ev) => { setEditingEvent(ev); setIsModalOpen(true); }} onDelete={confirmDeleteEvent} currentUser={currentUserProfile} />}
                                 {activeMenu === 'reports' && <ReportsView events={events} team={config.team} companies={config.companies} />}
                                 {activeMenu === 'settings' && <SettingsView config={config} currentUser={currentUserProfile} onUpdateConfig={handleUpdateConfig} onResetData={handleResetData} onSaveProfile={handleSaveProfile} onBackup={handleBackup} onRestore={handleRestore} />}
                             </div>
