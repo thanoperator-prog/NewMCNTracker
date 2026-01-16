@@ -78,8 +78,29 @@
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Firebase Init ---
-        // Using environment config
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // Config for standalone deployment (Fallback)
+        const defaultFirebaseConfig = {
+            apiKey: "AIzaSyB5ByJCJQizkF9qbdRwLY4l3lF8G-5hBd8",
+            authDomain: "newmcntracker-f8aff.firebaseapp.com",
+            projectId: "newmcntracker-f8aff",
+            storageBucket: "newmcntracker-f8aff.firebasestorage.app",
+            messagingSenderId: "450033345306",
+            appId: "1:450033345306:web:72f779af782eabd83a42a3",
+            measurementId: "G-5ZELR22P80"
+        };
+
+        let firebaseConfig;
+        try {
+            // Check if running in the specialized environment
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            } else {
+                throw new Error('Environment config missing');
+            }
+        } catch (e) {
+            console.warn("Using default config for deployment");
+            firebaseConfig = defaultFirebaseConfig;
+        }
         
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
