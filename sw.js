@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mcn-tracker-v1';
+const CACHE_NAME = 'mcn-tracker-v2'; // Incremented version to force update
 const ASSETS = [
   './',
   './index.html',
@@ -14,9 +14,11 @@ const ASSETS = [
 
 // Install Event
 self.addEventListener('install', (event) => {
+  // Force this service worker to become the active one, bypassing the waiting state
+  self.skipWaiting();
+
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      // Try to cache all assets, but don't fail if some optional ones fail
       return Promise.all(
         ASSETS.map(url => {
           return cache.add(url).catch(error => {
@@ -30,10 +32,16 @@ self.addEventListener('install', (event) => {
 
 // Activate Event (Cleanup old caches)
 self.addEventListener('activate', (event) => {
+  // Take control of all pages immediately
+  event.waitUntil(clients.claim());
+
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+        keys.filter(key => key !== CACHE_NAME).map(key => {
+          console.log('Deleting old cache:', key);
+          return caches.delete(key);
+        })
       );
     })
   );
@@ -41,19 +49,38 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event
 self.addEventListener('fetch', (event) => {
-  // Check if the request is for an external resource that shouldn't be handled by the cache
-  // specifically Firebase Firestore interactions (googleapis)
   const url = new URL(event.request.url);
   
-  if (url.hostname.includes('firestore.googleapis.com') || 
-      url.hostname.includes('firebaseinstallations.googleapis.com')) {
-    return; // Let the network handle Firestore data requests directly
+  // Ignore Firebase/Google API requests (let network handle them)
+  if (url.hostname.includes('googleapis.com') || 
+      url.hostname.includes('firebase')) {
+    return;
   }
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      // Return cached response if found, otherwise fetch from network
-      return cachedResponse || fetch(event.request);
+      // Network-first strategy for HTML to ensure latest version, fallback to cache
+      if (event.request.headers.get('accept').includes('text/html')) {
+         return fetch(event.request)
+            .then(response => {
+               return caches.open(CACHE_NAME).then(cache => {
+                  cache.put(event.request, response.clone());
+                  return response;
+               });
+            })
+            .catch(() => cachedResponse);
+      }
+
+      // Stale-while-revalidate for other assets
+      return cachedResponse || fetch(event.request).then(response => {
+        return caches.open(CACHE_NAME).then(cache => {
+           // Don't cache non-success responses or basic opaque responses for CDNs if not needed
+           if (response.status === 200) {
+             cache.put(event.request, response.clone());
+           }
+           return response;
+        });
+      });
     })
   );
 });

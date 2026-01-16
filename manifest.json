@@ -2,6 +2,7 @@
   "name": "MCN Event Tracker",
   "short_name": "MCN Tracker",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f1f5f9",
   "theme_color": "#4f46e5",
@@ -10,12 +11,14 @@
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
