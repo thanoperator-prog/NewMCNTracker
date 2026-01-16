@@ -6,10 +6,11 @@
     <title>MCN Event Tracker</title>
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="data:application/json;base64,ewogICAgIm5hbWUiOiAiTUNOIEV2ZW50IFRyYWNrZXIiLAogICAgInNob3J0X25hbWUiOiAiTUNOIFRyYWNrZXIiLAogICAgInN0YXJ0X3VybCI6ICIuIiwKICAgICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICAgImJhY2tncm91bmRfY29sb3IiOiAiIzFhMjAzNSIsCiAgICAidGhlbWVfY29sb3IiOiAiIzFhMjAzNSIKfQ==">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#4f46e5">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icon-192.png">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -44,6 +45,7 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
+        // Using stable version 10.13.1 to avoid CDN issues with non-existent versions
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-analytics.js";
         import { 
@@ -78,8 +80,8 @@
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Firebase Init ---
-        // Config for standalone deployment (Fallback)
-        const defaultFirebaseConfig = {
+        // Config for newmcntracker-f8aff
+        const firebaseConfig = {
             apiKey: "AIzaSyB5ByJCJQizkF9qbdRwLY4l3lF8G-5hBd8",
             authDomain: "newmcntracker-f8aff.firebaseapp.com",
             projectId: "newmcntracker-f8aff",
@@ -88,25 +90,13 @@
             appId: "1:450033345306:web:72f779af782eabd83a42a3",
             measurementId: "G-5ZELR22P80"
         };
-
-        let firebaseConfig;
-        try {
-            // Check if running in the specialized environment
-            if (typeof __firebase_config !== 'undefined') {
-                firebaseConfig = JSON.parse(__firebase_config);
-            } else {
-                throw new Error('Environment config missing');
-            }
-        } catch (e) {
-            console.warn("Using default config for deployment");
-            firebaseConfig = defaultFirebaseConfig;
-        }
         
         const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        // Using environment App ID or fallback
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'mcn-tracker-v1';
+        // Static ID for the app instance within the DB - MUST MATCH SECURITY RULES
+        const appId = 'mcn-tracker-v1';
 
         // --- Constants & Helper Functions ---
         const ADMIN_ROLES = ['Super Admin', 'Supervisor', 'Live Operator Lead', 'Live Operator Trainer'];
@@ -329,8 +319,8 @@
                 <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
                         <div className="text-center mb-8">
-                            <div className="w-24 h-24 mx-auto mb-4 bg-indigo-600 rounded-2xl shadow-md p-1 flex items-center justify-center">
-                                <FileBarChart className="text-white w-12 h-12" />
+                            <div className="w-24 h-24 mx-auto mb-4 bg-white rounded-2xl shadow-md p-1 flex items-center justify-center">
+                                <img src="icon-512.png" alt="MCN Tracker Logo" className="w-full h-full object-contain rounded-xl" onError={(e) => {e.target.style.display='none'; e.target.parentElement.innerHTML='<div class="bg-indigo-600 w-full h-full rounded-xl flex items-center justify-center text-white font-bold">MCN</div>'}} />
                             </div>
                             <h1 className="text-2xl font-bold text-slate-800">MCN Tracker</h1>
                             <p className="text-slate-500 mt-2">Sign in to access the event dashboard</p>
@@ -806,11 +796,8 @@
             React.useEffect(() => {
                 const initAuth = async () => {
                     try {
-                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
+                        // Directly sign in anonymously to avoid token mismatch with your custom config
+                        await signInAnonymously(auth);
                     } catch (error) {
                         console.error("Auth error:", error);
                     }
@@ -822,8 +809,7 @@
 
             React.useEffect(() => {
                 if (!user) return;
-                // CHANGED: Switched to public shared path for collaborative syncing
-                const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+                const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events');
                 
                 // Added error handling for snapshot listener
                 const unsubscribeEvents = onSnapshot(eventsRef, (snapshot) => { 
@@ -833,12 +819,11 @@
                     setLoading(false); 
                 }, (error) => {
                     console.error("Error fetching events:", error);
-                    // alert("Error fetching data: " + error.message);
+                    alert("Error fetching data: " + error.message + "\nPlease check your Firebase Console > Firestore Database > Rules.");
                     setLoading(false);
                 });
 
-                // CHANGED: Switched to public shared path for config
-                const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config');
+                const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'admin_settings', 'config');
                 const unsubscribeConfig = onSnapshot(configRef, (docSnap) => { 
                     if (docSnap.exists()) setConfig(docSnap.data()); 
                 }, (error) => {
@@ -850,8 +835,7 @@
 
             const handleSaveEvent = async (data) => { 
                 if (!user) return; 
-                // CHANGED: Switched to public shared path
-                const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events'); 
+                const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events'); 
                 try { 
                     if (editingEvent) await updateDoc(doc(eventsRef, editingEvent.id), { ...data, updatedAt: serverTimestamp() }); 
                     else await addDoc(eventsRef, { ...data, createdAt: serverTimestamp() }); 
@@ -865,8 +849,7 @@
             
             const handleStatusUpdate = async (eventId, newStatus) => { 
                 if (!user) return; 
-                // CHANGED: Switched to public shared path
-                const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events'); 
+                const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events'); 
                 try { await updateDoc(doc(eventsRef, eventId), { status: newStatus, updatedAt: serverTimestamp() }); } 
                 catch (err) { 
                     console.error("Status update error", err); 
@@ -880,8 +863,7 @@
                 const id = deleteConfirmation.id; 
                 if (!user || !id) return; 
                 try { 
-                    // CHANGED: Switched to public shared path
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', id)); 
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'admin_events', id)); 
                     setDeleteConfirmation({ isOpen: false, id: null }); 
                 } catch (err) { 
                     console.error("Delete error", err); 
@@ -892,8 +874,7 @@
             const handleResetData = async () => { 
                 if (!user) return; 
                 try { 
-                    // CHANGED: Switched to public shared path
-                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'events')); 
+                    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events')); 
                     const snapshot = await getDocs(q); 
                     const batch = writeBatch(db); 
                     snapshot.docs.forEach((doc) => batch.delete(doc.ref)); 
@@ -910,8 +891,7 @@
                 const newConfig = { ...config, [key]: value }; 
                 setConfig(newConfig); 
                 try { 
-                    // CHANGED: Switched to public shared path
-                    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'); 
+                    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'admin_settings', 'config'); 
                     await setDoc(configRef, newConfig, { merge: true }); 
                 } catch (err) { 
                     console.error("Config save error", err); 
@@ -932,16 +912,14 @@
                         
                         // 1. Rewrite Config (Overwrite existing)
                         if (backup.config) { 
-                            // CHANGED: Switched to public shared path
-                            const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'); 
+                            const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'admin_settings', 'config'); 
                             await setDoc(configRef, backup.config); 
                             setConfig(backup.config); 
                         } 
                         
                         // 2. Rewrite Events (Wipe all current data, then insert backup)
                         if (backup.events && Array.isArray(backup.events)) { 
-                            // CHANGED: Switched to public shared path
-                            const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events'); 
+                            const eventsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'admin_events'); 
                             
                             // A. Get all existing documents
                             const q = query(eventsRef); 
@@ -994,8 +972,8 @@
                     <aside className={`fixed lg:static inset-y-0 left-0 w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
                         <div className="p-6 border-b border-slate-800 flex justify-between items-center">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-indigo-600 rounded-lg p-0.5 flex items-center justify-center">
-                                    <FileBarChart className="text-white w-6 h-6" />
+                                <div className="w-10 h-10 bg-white rounded-lg p-0.5 flex items-center justify-center">
+                                    <img src="icon-512.png" alt="Logo" className="w-full h-full object-contain rounded-md" onError={(e) => {e.target.style.display='none'; e.target.parentElement.className='bg-indigo-600 p-2 rounded-lg'; e.target.parentElement.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>'}} />
                                 </div>
                                 <div><h1 className="font-bold text-lg leading-tight">MCN Tracker</h1><p className="text-xs text-slate-400">Event Manager</p></div>
                             </div>
