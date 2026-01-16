@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mcn-tracker-v2'; // Incremented version to force update
+const CACHE_NAME = 'mcn-tracker-v5'; // Updated version to v5 to force refresh new config
 const ASSETS = [
   './',
   './index.html',
@@ -51,7 +51,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
-  // Ignore Firebase/Google API requests (let network handle them)
+  // Ignore Firebase/Google API requests (let network handle them directly)
   if (url.hostname.includes('googleapis.com') || 
       url.hostname.includes('firebase')) {
     return;
@@ -59,7 +59,7 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      // Network-first strategy for HTML to ensure latest version, fallback to cache
+      // Network-first strategy for HTML to ensure latest version
       if (event.request.headers.get('accept').includes('text/html')) {
          return fetch(event.request)
             .then(response => {
@@ -74,7 +74,6 @@ self.addEventListener('fetch', (event) => {
       // Stale-while-revalidate for other assets
       return cachedResponse || fetch(event.request).then(response => {
         return caches.open(CACHE_NAME).then(cache => {
-           // Don't cache non-success responses or basic opaque responses for CDNs if not needed
            if (response.status === 200) {
              cache.put(event.request, response.clone());
            }
