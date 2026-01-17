@@ -76,7 +76,8 @@
             Trash2, Edit2, X, Check, Filter, User, LogOut, Save, Users, Database, Briefcase, 
             MapPin, Monitor, AlertTriangle, RefreshCw, Eye, EyeOff, Lock, ChevronRight, 
             Download, Upload, ChevronDown, ShieldAlert, AlertCircle, CalendarDays, ListFilter, 
-            Clock, Printer, FileText, Smartphone, Menu, Wifi, WifiOff, UserCheck, ArrowUpDown
+            Clock, Printer, FileText, Smartphone, Menu, Wifi, WifiOff, UserCheck, ArrowUpDown,
+            Coffee // Icon for Rest Day
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Firebase Init ---
@@ -248,7 +249,7 @@
             );
         };
 
-        const SearchableMultiSelect = ({ label, options, selected = [], onChange, disabledOptions = [] }) => {
+        const SearchableMultiSelect = ({ label, options, selected = [], onChange, disabledOptions = [], restDayUsers = [] }) => {
             const [isOpen, setIsOpen] = React.useState(false);
             const [searchTerm, setSearchTerm] = React.useState('');
             const containerRef = React.useRef(null);
@@ -256,10 +257,19 @@
                 const handleClickOutside = (event) => { if (containerRef.current && !containerRef.current.contains(event.target)) { setIsOpen(false); setSearchTerm(''); } };
                 document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside);
             }, []);
-            const toggleOption = (optionName) => { if (selected.includes(optionName)) { onChange(selected.filter(item => item !== optionName)); } else { onChange([...selected, optionName]); } };
+            
+            const toggleOption = (optionName) => { 
+                if (selected.includes(optionName)) { 
+                    onChange(selected.filter(item => item !== optionName)); 
+                } else { 
+                    onChange([...selected, optionName]); 
+                } 
+            };
+            
             const filteredOptions = options.filter(opt => opt.nickname.toLowerCase().includes(searchTerm.toLowerCase()) || opt.name.toLowerCase().includes(searchTerm.toLowerCase()));
             const safeSelected = Array.isArray(selected) ? selected : (selected ? [selected] : []);
             const displayValue = safeSelected.length > 0 ? safeSelected.map(name => { const opt = options.find(o => o.name === name); return opt ? opt.nickname : name; }).join(', ') : `Select ${label}`;
+            
             return (
                 <div className="relative" ref={containerRef}>
                     <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
@@ -267,7 +277,25 @@
                     {isOpen && (
                         <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
                             <div className="p-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10"><div className="relative"><Search className="absolute left-2 top-2 text-slate-400" size={14} /><input type="text" autoFocus placeholder={`Search ${label}...`} className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-md outline-none focus:border-indigo-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onClick={(e) => e.stopPropagation()} /></div></div>
-                            <div className="overflow-y-auto custom-scrollbar flex-1">{filteredOptions.length > 0 ? (filteredOptions.map((option, idx) => { const isDisabled = disabledOptions.includes(option.name); const isSelected = safeSelected.includes(option.name); return ( <div key={idx} onClick={() => !isDisabled && toggleOption(option.name)} className={`px-3 py-2.5 text-sm flex items-center gap-3 cursor-pointer transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'hover:bg-indigo-50'} ${isSelected ? 'bg-indigo-50' : ''}`}><div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>{isSelected && <Check size={12} className="text-white" />}</div><div><div className="font-medium text-slate-800">{option.nickname}</div><div className="text-xs text-slate-500">{option.role}</div></div></div> ); })) : <div className="px-4 py-3 text-sm text-slate-400 text-center italic">No results found</div>}</div>
+                            <div className="overflow-y-auto custom-scrollbar flex-1">{filteredOptions.length > 0 ? (filteredOptions.map((option, idx) => { 
+                                const isSelected = safeSelected.includes(option.name);
+                                const isRestDay = restDayUsers.includes(option.name);
+                                const isTaken = disabledOptions.includes(option.name);
+                                const isDisabled = isRestDay || isTaken;
+                                
+                                return ( 
+                                    <div key={idx} onClick={() => !isDisabled && toggleOption(option.name)} className={`px-3 py-2.5 text-sm flex items-center gap-3 cursor-pointer transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'hover:bg-indigo-50'} ${isSelected ? 'bg-indigo-50' : ''}`}>
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>{isSelected && <Check size={12} className="text-white" />}</div>
+                                        <div className="flex-1">
+                                            <div className="font-medium text-slate-800 flex justify-between items-center">
+                                                {option.nickname}
+                                                {isRestDay && <span className="text-xs text-orange-500 font-normal flex items-center gap-1"><Coffee size={10}/> Rest Day</span>}
+                                            </div>
+                                            <div className="text-xs text-slate-500">{option.role}</div>
+                                        </div>
+                                    </div> 
+                                ); 
+                            })) : <div className="px-4 py-3 text-sm text-slate-400 text-center italic">No results found</div>}</div>
                         </div>
                     )}
                 </div>
@@ -290,11 +318,35 @@
 
         const TeamMemberModal = ({ isOpen, onClose, onSave, initialData, roles }) => {
             if (!isOpen) return null;
-            const [formData, setFormData] = React.useState({ name: '', nickname: '', role: 'Live Operator', password: '' });
+            // Changed restDay (string) to restDays (array)
+            const [formData, setFormData] = React.useState({ name: '', nickname: '', role: 'Live Operator', password: '', restDays: [] });
             const [showConfirm, setShowConfirm] = React.useState(false);
-            React.useEffect(() => { if (initialData) setFormData(initialData); else setFormData({ name: '', nickname: '', role: 'Live Operator', password: '' }); }, [initialData, isOpen]);
+            const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+            React.useEffect(() => { 
+                if (initialData) {
+                    // Handle migration from old single 'restDay' string to new 'restDays' array
+                    let currentRestDays = initialData.restDays || [];
+                    if (!currentRestDays.length && initialData.restDay) {
+                        currentRestDays = [initialData.restDay];
+                    }
+                    setFormData({ ...initialData, restDays: currentRestDays }); 
+                } else { 
+                    setFormData({ name: '', nickname: '', role: 'Live Operator', password: '', restDays: [] }); 
+                } 
+            }, [initialData, isOpen]);
+            
+            const toggleDay = (day) => {
+                if (formData.restDays.includes(day)) {
+                    setFormData({ ...formData, restDays: formData.restDays.filter(d => d !== day) });
+                } else {
+                    setFormData({ ...formData, restDays: [...formData.restDays, day] });
+                }
+            };
+
             const handleSubmit = (e) => { e.preventDefault(); setShowConfirm(true); };
             const handleConfirm = () => { onSave(formData); setShowConfirm(false); };
+            
             return (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col animate-in fade-in zoom-in duration-200 relative">
@@ -303,6 +355,27 @@
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" /></div>
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Nickname</label><input required type="text" value={formData.nickname} onChange={e => setFormData({...formData, nickname: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" /></div>
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Role</label><select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500">{roles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Rest Days (Multiple)</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {daysOfWeek.map(day => {
+                                        const isSelected = formData.restDays.includes(day);
+                                        return (
+                                            <button 
+                                                key={day} 
+                                                type="button"
+                                                onClick={() => toggleDay(day)}
+                                                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+                                            >
+                                                {day.substring(0, 3)}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <p className="text-xs text-slate-400 mt-1.5">Selected: {formData.restDays.length > 0 ? formData.restDays.join(', ') : 'None'}</p>
+                            </div>
+
                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><PasswordInput value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2 rounded border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" /></div>
                             <div className="pt-4 flex gap-3"><button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">Cancel</button><button type="submit" className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-lg shadow-indigo-200">{initialData ? 'Save Changes' : 'Create User'}</button></div>
                         </form>
@@ -648,7 +721,7 @@
                             <h2 className="text-2xl font-bold text-slate-800">Event Schedule</h2>
                             <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
                                 <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
-                                    <button onClick={() => setFilterType('current')} className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${filterType === 'current' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>Current</button>
+                                    <button onClick={() => setFilterType('current')} className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${filterType === 'current' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>Current Month</button>
                                     <button onClick={() => setFilterType('all')} className={`flex-1 sm:flex-none px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${filterType === 'all' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>All</button>
                                     <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
                                     <div className="relative flex items-center w-full sm:w-auto">
@@ -794,7 +867,7 @@
             const [deleteMemberIndex, setDeleteMemberIndex] = React.useState(null);
             const fileInputRef = React.useRef(null);
             const isAdmin = checkIsAdmin(currentUser);
-            const adminRoles = ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer']; // Added missing definition
+            const adminRoles = ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer'];
 
             React.useEffect(() => { if (currentUser) setProfileForm({ name: currentUser.name, nickname: currentUser.nickname, password: currentUser.password }); }, [currentUser]);
             const updateList = (key, items) => { onUpdateConfig(key, items); };
@@ -816,7 +889,19 @@
                 switch(activeTab) {
                     case 'general': return (<div className="space-y-6"><h3 className="text-lg font-bold">Profile Information Overview</h3><div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4 relative"><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-indigo-200">{profileForm.nickname.charAt(0).toUpperCase()}</div><div><h4 className="font-bold text-slate-800 text-lg">{profileForm.name}</h4><span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">{checkIsAdmin(currentUser) ? 'Super Admin / Lead' : 'Live Operator'}</span></div></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input type="text" value={profileForm.name} onChange={(e) => setProfileForm({...profileForm, name: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div><div><label className="block text-sm font-medium text-slate-700 mb-1">Nickname</label><input type="text" value={profileForm.nickname} onChange={(e) => setProfileForm({...profileForm, nickname: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div><div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><PasswordInput value={profileForm.password} onChange={(e) => setProfileForm({...profileForm, password: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div></div><div className="flex justify-end pt-4"><button onClick={handleProfileSave} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 shadow-md"><Save size={18} /> Save Changes</button></div><ConfirmationModal isOpen={showProfileConfirm} onClose={() => setShowProfileConfirm(false)} onConfirm={performProfileSave} title="Save Profile Changes" message="Are you sure you want to update your profile information?" /></div></div>);
                     case 'config': return (<div className="space-y-6"><div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-sm"><RefreshCw size={16} className="inline mr-2" /> Configuration Management: Updates made here immediately reflect in dropdowns.</div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><ListManager title="Companies" items={config.companies} onAdd={(item) => updateList('companies', [...config.companies, item])} onDelete={(idx) => updateList('companies', config.companies.filter((_, i) => i !== idx))} /><ListManager title="Platforms" items={config.platforms} onAdd={(item) => updateList('platforms', [...config.platforms, item])} onDelete={(idx) => updateList('platforms', config.platforms.filter((_, i) => i !== idx))} /><ListManager title="Venues" items={config.venues} onAdd={(item) => updateList('venues', [...config.venues, item])} onDelete={(idx) => updateList('venues', config.venues.filter((_, i) => i !== idx))} /><ListManager title="Setups" items={config.setups} onAdd={(item) => updateList('setups', [...config.setups, item])} onDelete={(idx) => updateList('setups', config.setups.filter((_, i) => i !== idx))} /><ListManager title="Roles" items={config.roles} onAdd={(item) => updateList('roles', [...config.roles, item])} onDelete={(idx) => updateList('roles', config.roles.filter((_, i) => i !== idx))} /></div></div>);
-                    case 'team': return (<div className="space-y-6"><div className="flex justify-between items-center"><h3 className="text-lg font-bold text-slate-800">Team Management</h3><div className="flex gap-3"><button onClick={() => setShowAllPasswords(!showAllPasswords)} className="flex items-center gap-2 px-3 py-2 border border-slate-300 text-slate-600 font-medium rounded-lg hover:bg-slate-50 transition-colors shadow-sm text-sm hidden sm:flex">{showAllPasswords ? <EyeOff size={16} /> : <Eye size={16} />}{showAllPasswords ? 'Hide' : 'Show'}</button><button onClick={openAddTeamModal} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"><Plus size={18} /> Add User</button></div></div><div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-600 border-b border-slate-200"><tr><th className="px-4 py-3 font-semibold">Name</th><th className="px-4 py-3 font-semibold hidden sm:table-cell">Nickname</th><th className="px-4 py-3 font-semibold">Role</th><th className="px-4 py-3 font-semibold hidden sm:table-cell">Password</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{sortedTeam.map((member, idx) => (<tr key={idx} className="hover:bg-slate-50/50"><td className="px-4 py-3 font-medium text-slate-800">{member.name}</td><td className="px-4 py-3 text-slate-600 hidden sm:table-cell">{member.nickname}</td><td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-semibold ${adminRoles.includes(member.role) ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{member.role}</span></td><td className="px-4 py-3 text-slate-500 hidden sm:table-cell gap-1 font-mono text-xs"><div className="flex items-center gap-1"><Lock size={12} className={showAllPasswords ? 'text-indigo-400' : 'text-slate-400'} />{showAllPasswords ? member.password : '••••••'}</div></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => { const originalIndex = config.team.findIndex(m => m.name === member.name); openEditTeamModal(originalIndex); }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Edit2 size={16} /></button><button onClick={() => { const originalIndex = config.team.findIndex(m => m.name === member.name); handleDeleteTeamMember(originalIndex); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></td></tr>))}</tbody></table></div><TeamMemberModal isOpen={isTeamModalOpen} onClose={() => setIsTeamModalOpen(false)} onSave={handleSaveTeamMember} initialData={teamForm} roles={config.roles} /><ConfirmationModal isOpen={deleteMemberIndex !== null} onClose={() => setDeleteMemberIndex(null)} onConfirm={confirmDeleteMember} title="Delete Team Member" message="Are you sure you want to remove this user? This action cannot be undone." isDelete={true} /></div>);
+                    case 'team': return (<div className="space-y-6"><div className="flex justify-between items-center"><h3 className="text-lg font-bold text-slate-800">Team Management</h3><div className="flex gap-3"><button onClick={() => setShowAllPasswords(!showAllPasswords)} className="flex items-center gap-2 px-3 py-2 border border-slate-300 text-slate-600 font-medium rounded-lg hover:bg-slate-50 transition-colors shadow-sm text-sm hidden sm:flex">{showAllPasswords ? <EyeOff size={16} /> : <Eye size={16} />}{showAllPasswords ? 'Hide' : 'Show'}</button><button onClick={openAddTeamModal} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"><Plus size={18} /> Add User</button></div></div><div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-600 border-b border-slate-200"><tr><th className="px-4 py-3 font-semibold">Name</th><th className="px-4 py-3 font-semibold hidden sm:table-cell">Nickname</th><th className="px-4 py-3 font-semibold">Role</th><th className="px-4 py-3 font-semibold">Rest Days</th><th className="px-4 py-3 font-semibold hidden sm:table-cell">Password</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{sortedTeam.map((member, idx) => {
+                        const restDaysDisplay = Array.isArray(member.restDays) && member.restDays.length > 0 ? member.restDays.map(d => d.substring(0,3)).join(', ') : (member.restDay || '-');
+                        return (
+                            <tr key={idx} className="hover:bg-slate-50/50">
+                                <td className="px-4 py-3 font-medium text-slate-800">{member.name}</td>
+                                <td className="px-4 py-3 text-slate-600 hidden sm:table-cell">{member.nickname}</td>
+                                <td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-semibold ${adminRoles.includes(member.role) ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{member.role}</span></td>
+                                <td className="px-4 py-3 text-slate-500 font-medium text-xs max-w-[150px] truncate" title={restDaysDisplay}>{restDaysDisplay}</td>
+                                <td className="px-4 py-3 text-slate-500 hidden sm:table-cell gap-1 font-mono text-xs"><div className="flex items-center gap-1"><Lock size={12} className={showAllPasswords ? 'text-indigo-400' : 'text-slate-400'} />{showAllPasswords ? member.password : '••••••'}</div></td>
+                                <td className="px-4 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => { const originalIndex = config.team.findIndex(m => m.name === member.name); openEditTeamModal(originalIndex); }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Edit2 size={16} /></button><button onClick={() => { const originalIndex = config.team.findIndex(m => m.name === member.name); handleDeleteTeamMember(originalIndex); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></td>
+                            </tr>
+                        );
+                    })}</tbody></table></div></div><TeamMemberModal isOpen={isTeamModalOpen} onClose={() => setIsTeamModalOpen(false)} onSave={handleSaveTeamMember} initialData={teamForm} roles={config.roles} /><ConfirmationModal isOpen={deleteMemberIndex !== null} onClose={() => setDeleteMemberIndex(null)} onConfirm={confirmDeleteMember} title="Delete Team Member" message="Are you sure you want to remove this user? This action cannot be undone." isDelete={true} /></div>);
                     case 'data': return (<div className="space-y-6"><h3 className="text-lg font-bold text-slate-800">Data Management</h3><div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4"><h4 className="font-bold text-slate-700">Backup & Restore</h4><p className="text-sm text-slate-500">Download a copy of your events and settings, or restore from a previous backup file.</p><div className="flex flex-col sm:flex-row gap-4 pt-2"><button onClick={() => handleActionClick('backup')} className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"><Download size={18} /> Download Backup</button><div className="relative"><input type="file" accept=".json" ref={fileInputRef} onChange={handleFileChange} className="hidden" /><button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"><Upload size={18} /> Restore Data</button></div></div></div><div className="p-6 border border-red-200 bg-red-50 rounded-xl"><h3 className="text-lg font-bold text-red-800 mb-2 flex items-center gap-2"><AlertTriangle size={20} /> Danger Zone</h3><p className="text-red-600 mb-4 text-sm">Factory reset will delete ALL events from the database. This action cannot be undone.</p><button onClick={() => handleActionClick('reset')} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 shadow-sm transition-colors">Factory Reset</button></div><SecurityModal isOpen={securityModal.isOpen} onClose={() => setSecurityModal({ ...securityModal, isOpen: false })} onConfirm={verifyPasswordAndExecute} actionType={securityModal.type} /></div>);
                     default: return null;
                 }
@@ -880,6 +965,13 @@
             const handleSubmit = (e) => { e.preventDefault(); setShowConfirm(true); };
             const handleConfirm = () => { onSave(formData); setShowConfirm(false); };
 
+            // Calculate users on rest day based on selected date
+            const dayName = getDayName(formData.date);
+            const restDayUsers = config.team.filter(m => {
+                if (Array.isArray(m.restDays)) return m.restDays.includes(dayName);
+                return m.restDay === dayName; // Support legacy single rest day
+            }).map(m => m.name);
+
             return (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col relative">
@@ -906,8 +998,22 @@
                                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Setup</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.setup} onChange={e => setFormData({...formData, setup: e.target.value})}>{config.setups.map(s => <option key={s}>{s}</option>)}</select></div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
-                                <SearchableMultiSelect label="In-Charge" options={config.team} selected={formData.inCharge} onChange={(val) => setFormData({...formData, inCharge: val})} disabledOptions={formData.backup} />
-                                <SearchableMultiSelect label="Backup" options={config.team} selected={formData.backup} onChange={(val) => setFormData({...formData, backup: val})} disabledOptions={formData.inCharge} />
+                                <SearchableMultiSelect 
+                                    label="In-Charge" 
+                                    options={config.team} 
+                                    selected={formData.inCharge} 
+                                    onChange={(val) => setFormData({...formData, inCharge: val})} 
+                                    disabledOptions={formData.backup}
+                                    restDayUsers={restDayUsers} 
+                                />
+                                <SearchableMultiSelect 
+                                    label="Backup" 
+                                    options={config.team} 
+                                    selected={formData.backup} 
+                                    onChange={(val) => setFormData({...formData, backup: val})} 
+                                    disabledOptions={formData.inCharge}
+                                    restDayUsers={restDayUsers} 
+                                />
                             </div>
                             <div className="pt-4 flex gap-3">
                                 <button type="button" onClick={onClose} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">Cancel</button>
@@ -942,9 +1048,9 @@
                 setups: ['Greenscreen', 'Set Design'],
                 roles: ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer', 'Live Operator'],
                 team: [
-                    { name: 'John Smith', nickname: 'John', role: 'Supervisor', password: '123' },
-                    { name: 'Sarah Connor', nickname: 'Sarah', role: 'Live Operator Lead', password: '123' },
-                    { name: 'Mike Ross', nickname: 'Mike', role: 'Live Operator', password: '123' }
+                    { name: 'John Smith', nickname: 'John', role: 'Supervisor', password: '123', restDays: [] },
+                    { name: 'Sarah Connor', nickname: 'Sarah', role: 'Live Operator Lead', password: '123', restDays: [] },
+                    { name: 'Mike Ross', nickname: 'Mike', role: 'Live Operator', password: '123', restDays: [] }
                 ],
                 adminProfile: { name: 'Administrator', nickname: 'Admin', password: '123' }
             });
