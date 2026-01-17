@@ -249,7 +249,7 @@
             );
         };
 
-        const SearchableMultiSelect = ({ label, options, selected = [], onChange, disabledOptions = [], restDayUsers = [], assignmentCounts = {} }) => {
+        const SearchableMultiSelect = ({ label, options, selected = [], onChange, disabledOptions = [], restDayUsers = [], busyUsers = [], assignmentCounts = {} }) => {
             const [isOpen, setIsOpen] = React.useState(false);
             const [searchTerm, setSearchTerm] = React.useState('');
             const containerRef = React.useRef(null);
@@ -281,8 +281,9 @@
                                 const isSelected = safeSelected.includes(option.name);
                                 const isRestDay = restDayUsers.includes(option.name);
                                 const isTaken = disabledOptions.includes(option.name);
-                                const isDisabled = isRestDay || isTaken;
-                                const loadCount = assignmentCounts[option.name] || 0; // Get count of Done/Confirmed events
+                                const isBusy = busyUsers.includes(option.name);
+                                const isDisabled = isRestDay || isTaken || isBusy;
+                                const loadCount = assignmentCounts[option.name] || 0; 
                                 
                                 return ( 
                                     <div key={idx} onClick={() => !isDisabled && toggleOption(option.name)} className={`px-3 py-2.5 text-sm flex items-center gap-3 cursor-pointer transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'hover:bg-indigo-50'} ${isSelected ? 'bg-indigo-50' : ''}`}>
@@ -295,7 +296,10 @@
                                                         {loadCount}
                                                     </span>
                                                 </span>
-                                                {isRestDay && <span className="text-xs text-orange-500 font-normal flex items-center gap-1"><Coffee size={10}/> Rest Day</span>}
+                                                <div className="flex gap-1">
+                                                    {isRestDay && <span className="text-xs text-orange-500 font-normal flex items-center gap-1"><Coffee size={10}/> Rest</span>}
+                                                    {isBusy && <span className="text-xs text-red-500 font-normal flex items-center gap-1"><CalendarDays size={10}/> Assigned</span>}
+                                                </div>
                                             </div>
                                             <div className="text-xs text-slate-500">{option.role}</div>
                                         </div>
@@ -1015,6 +1019,21 @@
                 }
                 return counts;
             }, [events, config.team]);
+            
+            // Calculate duplicate assignments for the selected date
+            const busyUsers = React.useMemo(() => {
+                if (!events) return [];
+                const busy = [];
+                events.forEach(ev => {
+                    // Check if event is on the same date and NOT the one currently being edited
+                    if (ev.date === formData.date && (!initialData || ev.id !== initialData.id)) {
+                         const allAssigned = [...(Array.isArray(ev.inCharge) ? ev.inCharge : []), ...(Array.isArray(ev.backup) ? ev.backup : [])];
+                         busy.push(...allAssigned);
+                    }
+                });
+                return [...new Set(busy)]; // Return unique list of busy users
+            }, [events, formData.date, initialData]);
+
 
             const handleSubmit = (e) => { e.preventDefault(); setShowConfirm(true); };
             const handleConfirm = () => { onSave(formData); setShowConfirm(false); };
@@ -1063,6 +1082,7 @@
                                     onChange={(val) => setFormData({...formData, inCharge: val})} 
                                     disabledOptions={formData.backup}
                                     restDayUsers={restDayUsers}
+                                    busyUsers={busyUsers}
                                     assignmentCounts={assignmentCounts}
                                 />
                                 <SearchableMultiSelect 
@@ -1072,6 +1092,7 @@
                                     onChange={(val) => setFormData({...formData, backup: val})} 
                                     disabledOptions={formData.inCharge}
                                     restDayUsers={restDayUsers}
+                                    busyUsers={busyUsers}
                                     assignmentCounts={assignmentCounts}
                                 />
                             </div>
