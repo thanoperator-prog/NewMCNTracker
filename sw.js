@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mcn-tracker-v5'; // Updated version to v5 to force refresh new config
+const CACHE_NAME = 'mcn-tracker-v7'; // Updated version to v7
 const ASSETS = [
   './',
   './index.html',
