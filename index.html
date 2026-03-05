@@ -25,6 +25,9 @@
     <!-- HTML2PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
+    <!-- SheetJS (Excel Export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
     <!-- React & ReactDOM & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -903,15 +906,83 @@
                 printWindow.document.close();
             };
 
+            const generateExcel = () => {
+                let reportEvents = events.filter(e => e.status === 'Done');
+                if (selectedCompany !== 'All') { reportEvents = reportEvents.filter(e => e.company === selectedCompany); }
+                if (reportType === 'monthly') { const [year, month] = selectedDate.split('-'); reportEvents = reportEvents.filter(e => { const d = new Date(e.date); return d.getFullYear() === parseInt(year) && d.getMonth() === parseInt(month) - 1; }); } 
+                else if (reportType === 'yearly') { reportEvents = reportEvents.filter(e => new Date(e.date).getFullYear() === parseInt(selectedYear)); }
+
+                const formatTime12h = (timeStr) => {
+                    if (!timeStr) return '';
+                    const [hour, minute] = timeStr.split(':').map(Number);
+                    const d = new Date(); d.setHours(hour); d.setMinutes(minute);
+                    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                };
+
+                const eventsData = reportEvents.map(ev => ({
+                    'Date': new Date(ev.date).toLocaleDateString(),
+                    'Time': formatTime12h(ev.time),
+                    'Company': ev.company,
+                    'Platform': ev.platform || '-',
+                    'Brand': ev.brand,
+                    'Creator': getNickname(ev.creator, team),
+                    'Venue': ev.venue,
+                    'Setup': ev.setup,
+                    'In-Charge': Array.isArray(ev.inCharge) ? ev.inCharge.join(', ') : (ev.inCharge || ''),
+                    'Backup': Array.isArray(ev.backup) ? ev.backup.join(', ') : (ev.backup || '')
+                }));
+
+                const ALLOWED_ROLES = ['Live Operator Lead', 'Live Operator Trainer', 'Live Operator'];
+                const activeReportEvents = reportEvents.filter(e => e.status !== 'Cancelled');
+                const eligibleMembers = team.filter(m => ALLOWED_ROLES.includes(m.role));
+                const assignmentData = eligibleMembers.map(member => {
+                    let inChargeCount = 0; let backupCount = 0;
+                    activeReportEvents.forEach(ev => {
+                        const icList = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
+                        const bList = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
+                        if (icList.includes(member.name)) inChargeCount++;
+                        if (bList.includes(member.name)) backupCount++;
+                    });
+                    return { ...member, inChargeCount, backupCount, total: inChargeCount + backupCount };
+                }).filter(member => member.total > 0);
+                
+                const assignedStatsGroups = groupMembersByRole(assignmentData);
+                const statsData = [];
+                assignedStatsGroups.forEach(group => {
+                    group.members.forEach(member => {
+                        statsData.push({
+                            'Name': member.name,
+                            'Nickname': member.nickname,
+                            'Role': member.role,
+                            'In-Charge': member.inChargeCount,
+                            'Backup': member.backupCount,
+                            'Total Assigned': member.total
+                        });
+                    });
+                });
+
+                const wb = XLSX.utils.book_new();
+                const wsEvents = XLSX.utils.json_to_sheet(eventsData.length ? eventsData : [{'Message': 'No events found'}]);
+                XLSX.utils.book_append_sheet(wb, wsEvents, "Event Schedule");
+                
+                const wsStats = XLSX.utils.json_to_sheet(statsData.length ? statsData : [{'Message': 'No data available'}]);
+                XLSX.utils.book_append_sheet(wb, wsStats, "Assigned Counters");
+
+                const periodString = reportType === 'all' ? 'All_Time' : reportType === 'monthly' ? selectedDate : selectedYear;
+                const filename = `mcn_report_${selectedCompany}_${periodString}.xlsx`.toLowerCase().replace(/[^a-z0-9.]/g, '_');
+                
+                XLSX.writeFile(wb, filename);
+            };
+
             return (
                 <div className="max-w-4xl mx-auto space-y-6 pb-20 sm:pb-0">
                     <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200">
-                        <div className="flex flex-col sm:flex-row items-center gap-4 mb-6 text-center sm:text-left"><div className="p-3 bg-indigo-50 rounded-xl text-indigo-600"><FileText size={32} /></div><div><h2 className="text-2xl font-bold text-slate-800">Generate Reports</h2><p className="text-slate-500">Export completed event data to PDF.</p></div></div>
+                        <div className="flex flex-col sm:flex-row items-center gap-4 mb-6 text-center sm:text-left"><div className="p-3 bg-indigo-50 rounded-xl text-indigo-600"><FileText size={32} /></div><div><h2 className="text-2xl font-bold text-slate-800">Generate Reports</h2><p className="text-slate-500">Export completed event data to PDF or Excel.</p></div></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                             <div><label className="block text-sm font-medium text-slate-700 mb-2">Company</label><select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"><option value="All">All Companies</option>{companies.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                             <div><label className="block text-sm font-medium text-slate-700 mb-2">Time Range</label><div className="flex gap-2"><select value={reportType} onChange={(e) => setReportType(e.target.value)} className="w-1/3 px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="all">All Data</option></select>{reportType === 'monthly' && <input type="month" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-2/3 px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" />}{reportType === 'yearly' && <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="w-2/3 px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500">{[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}</select>}{reportType === 'all' && <div className="w-2/3 bg-slate-50 border border-slate-200 rounded-xl flex items-center px-4 text-slate-400 text-sm">Entire History</div>}</div></div>
                         </div>
-                        <div className="flex justify-center sm:justify-end"><button onClick={generateReport} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95"><Download size={20} /> Download Report (PDF)</button></div>
+                        <div className="flex flex-col sm:flex-row justify-center sm:justify-end gap-3"><button onClick={generateExcel} className="flex justify-center items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-emerald-200 transition-all active:scale-95"><Download size={20} /> Download Excel (.xlsx)</button><button onClick={generateReport} className="flex justify-center items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95"><Download size={20} /> Download PDF</button></div>
                     </div>
                 </div>
             );
