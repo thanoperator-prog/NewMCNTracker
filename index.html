@@ -1017,45 +1017,48 @@
         const EventModal = ({ isOpen, onClose, onSave, initialData, config, events = [] }) => {
             if (!isOpen) return null;
 
-            const [formData, setFormData] = React.useState({
-                date: getManilaToday(),
-                time: '09:00',
-                status: 'Pending',
-                company: config.companies[0] || '',
-                platform: config.platforms[0] || '',
-                brand: '',
-                creator: '',
-                venue: 'TBC',
-                setup: 'Greenscreen',
-                backup: [],
-                inCharge: [],
-                ...initialData
-            });
+            const [formData, setFormData] = React.useState({});
             const [showConfirm, setShowConfirm] = React.useState(false);
 
             React.useEffect(() => {
-                if (initialData) {
-                    setFormData({
-                        ...initialData,
-                        inCharge: Array.isArray(initialData.inCharge) ? initialData.inCharge : (initialData.inCharge ? [initialData.inCharge] : []),
-                        backup: Array.isArray(initialData.backup) ? initialData.backup : (initialData.backup ? [initialData.backup] : [])
-                    });
-                } else {
-                    setFormData({
-                        date: getManilaToday(),
-                        time: '09:00',
-                        status: 'Pending',
-                        company: config.companies[0] || '',
-                        platform: config.platforms[0] || '',
-                        brand: '',
-                        creator: '',
-                        venue: 'TBC',
-                        setup: 'Greenscreen',
-                        backup: [],
-                        inCharge: [],
-                    });
+                if (isOpen) {
+                    const defaultCompany = config.companies?.[0] || '';
+                    const defaultPlatform = config.platforms?.[0] || '';
+                    const defaultVenue = config.venues?.[0] || 'TBC';
+                    const defaultSetup = config.setups?.[0] || 'Greenscreen';
+
+                    if (initialData) {
+                        setFormData({
+                            company: initialData.company || defaultCompany,
+                            platform: initialData.platform || defaultPlatform,
+                            brand: initialData.brand || '',
+                            creator: initialData.creator || '',
+                            venue: initialData.venue || defaultVenue,
+                            setup: initialData.setup || defaultSetup,
+                            date: initialData.date || getManilaToday(),
+                            time: initialData.time || '09:00',
+                            status: initialData.status || 'Pending',
+                            id: initialData.id,
+                            inCharge: Array.isArray(initialData.inCharge) ? initialData.inCharge : (initialData.inCharge ? [initialData.inCharge] : []),
+                            backup: Array.isArray(initialData.backup) ? initialData.backup : (initialData.backup ? [initialData.backup] : [])
+                        });
+                    } else {
+                        setFormData({
+                            date: getManilaToday(),
+                            time: '09:00',
+                            status: 'Pending',
+                            company: defaultCompany,
+                            platform: defaultPlatform,
+                            brand: '',
+                            creator: '',
+                            venue: defaultVenue,
+                            setup: defaultSetup,
+                            backup: [],
+                            inCharge: [],
+                        });
+                    }
                 }
-            }, [initialData, isOpen, config]);
+            }, [initialData, isOpen]);
 
             // DITO NATIN I-CACALCULATE ANG REST DAYS, BUSY, AT WORKLOAD COUNTS
             const { restDayUsers, upcomingRestDayUsers, busyUsers, assignmentCounts } = React.useMemo(() => {
@@ -1065,20 +1068,17 @@
                 const busy = [];
                 const currentMonth = formData.date ? formData.date.substring(0, 7) : getManilaMonth();
 
-                // Check all events for workload and schedule conflicts
                 events.forEach(ev => {
                     if (ev.status === 'Cancelled') return;
                     
                     const ic = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
                     const bu = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
                     
-                    // Bilangin ang assignments para sa current month
                     if (ev.date && ev.date.startsWith(currentMonth)) {
                         ic.forEach(name => { counts[name] = (counts[name] || 0) + 1; });
                         bu.forEach(name => { counts[name] = (counts[name] || 0) + 1; });
                     }
 
-                    // I-check kung sino ang may event on the exact same date and time
                     if (ev.date === formData.date && ev.time === formData.time) {
                         if (!initialData || ev.id !== initialData.id) {
                             busy.push(...ic, ...bu);
@@ -1086,7 +1086,6 @@
                     }
                 });
 
-                // Calculate Rest Days base sa date na pinili
                 let rest = [];
                 let upcomingRest = [];
                 if (formData.date && config.team) {
@@ -1116,13 +1115,21 @@
                         </div>
                         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 custom-scrollbar pb-32 rounded-b-2xl">
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Date</label><input required type="date" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /><p className="text-xs text-indigo-600 mt-1 font-medium">{getDayName(formData.date)}</p></div>
-                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Time (12h)</label><input required type="time" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} /></div>
-                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Status</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}><option>Confirm</option><option>Pending</option><option>Cancelled</option><option>Done</option></select></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Date</label><input required type="date" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.date || ''} onChange={e => setFormData({...formData, date: e.target.value})} /><p className="text-xs text-indigo-600 mt-1 font-medium">{getDayName(formData.date)}</p></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Time (12h)</label><input required type="time" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.time || ''} onChange={e => setFormData({...formData, time: e.target.value})} /></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Status</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.status || 'Pending'} onChange={e => setFormData({...formData, status: e.target.value})}><option>Confirm</option><option>Pending</option><option>Cancelled</option><option>Done</option></select></div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Company</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.company} onChange={e => setFormData({...formData, company: e.target.value})}>{config.companies.map(c => <option key={c}>{c}</option>)}</select></div>
-                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Platform</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.platform} onChange={e => setFormData({...formData, platform: e.target.value})}>{config.platforms.map(p => <option key={p}>{p}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Company</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.company || ''} onChange={e => setFormData({...formData, company: e.target.value})}>{config.companies.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Platform</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.platform || ''} onChange={e => setFormData({...formData, platform: e.target.value})}>{config.platforms.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Brand</label><input required type="text" placeholder="Brand Name" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.brand || ''} onChange={e => setFormData({...formData, brand: e.target.value})} /></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Creator</label><input required type="text" placeholder="Creator Name" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.creator || ''} onChange={e => setFormData({...formData, creator: e.target.value})} /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Venue</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.venue || ''} onChange={e => setFormData({...formData, venue: e.target.value})}>{config.venues.map(v => <option key={v} value={v}>{v}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Setup</label><select className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.setup || ''} onChange={e => setFormData({...formData, setup: e.target.value})}>{config.setups.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <SearchableMultiSelect 
