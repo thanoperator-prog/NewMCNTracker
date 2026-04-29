@@ -339,12 +339,12 @@
         };
 
         const ListManager = ({ title, items, onAdd, onDelete }) => {
-            const [newItem, setNewItem] = React.useState('');
-            const handleAdd = () => { if (newItem.trim()) { onAdd(newItem.trim()); setNewItem(''); } };
+            const [newItem, React_useState] = React.useState('');
+            const handleAdd = () => { if (newItem.trim()) { onAdd(newItem.trim()); React_useState(''); } };
             return (
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
                     <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center"><ChevronRight size={18} /></div>{title}</h4>
-                    <div className="flex gap-2 mb-4"><input type="text" value={newItem} onChange={(e) => setNewItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder={`Add ${title}...`} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-sm bg-slate-50/50 focus:bg-white transition-colors" /><button onClick={handleAdd} className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 transition-colors shadow-sm active:scale-95 transform">Add</button></div>
+                    <div className="flex gap-2 mb-4"><input type="text" value={newItem} onChange={(e) => React_useState(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder={`Add ${title}...`} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-sm bg-slate-50/50 focus:bg-white transition-colors" /><button onClick={handleAdd} className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 transition-colors shadow-sm active:scale-95 transform">Add</button></div>
                     <div className="flex flex-wrap gap-2">{items.map((item, idx) => (<span key={idx} className="group inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 font-medium hover:bg-white hover:border-brand-200 hover:text-brand-700 transition-all shadow-sm">{item}<button onClick={() => onDelete(idx)} className="text-slate-400 hover:text-red-500 opacity-50 group-hover:opacity-100 transition-all"><X size={14} /></button></span>))}{items.length === 0 && <span className="text-slate-400 text-sm italic py-2">No items added yet.</span>}</div>
                 </div>
             );
@@ -452,7 +452,7 @@
             );
         };
 
-        const Dashboard = ({ events, team, onUpdateStatus, currentUser }) => {
+        const Dashboard = ({ events, team, companies, onUpdateStatus, currentUser }) => {
             const [filterType, setFilterType] = React.useState('current');
             const [selectedMonth, setSelectedMonth] = React.useState(getManilaMonth());
             const today = getManilaToday();
@@ -523,44 +523,84 @@
             const todayPending = React.useMemo(() => stats.today.filter(e => e.status === 'Pending'), [stats.today]);
 
             const teamPerformanceGroups = React.useMemo(() => {
-                if (!team) return [];
+                if (!team || !companies) return [];
                 const doneEvents = filteredStatsEvents.filter(e => e.status === 'Done');
                 const performanceData = team.map(member => {
                     let icCount = 0; let bCount = 0;
+                    let companyCounts = {};
+                    companies.forEach(c => companyCounts[c] = 0);
+
                     doneEvents.forEach(ev => {
                         const icList = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
-                        if (icList.includes(member.name)) icCount++;
                         const bList = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
-                        if (bList.includes(member.name)) bCount++;
+                        const isIC = icList.includes(member.name);
+                        const isB = bList.includes(member.name);
+                        
+                        if (isIC) icCount++;
+                        if (isB) bCount++;
+
+                        if (isIC || isB) {
+                            if (ev.company) {
+                                companyCounts[ev.company] = (companyCounts[ev.company] || 0) + 1;
+                            }
+                        }
                     });
-                    return { ...member, inChargeCount: icCount, backupCount: bCount, total: icCount + bCount };
+                    return { ...member, inChargeCount: icCount, backupCount: bCount, total: icCount + bCount, companyCounts };
                 });
                 const activeMembers = performanceData.filter(m => m.total > 0);
                 return groupMembersByRole(activeMembers);
-            }, [filteredStatsEvents, team]);
+            }, [filteredStatsEvents, team, companies]);
 
             const assignedStatsGroups = React.useMemo(() => {
-                if (!team) return [];
+                if (!team || !companies) return [];
                 const ALLOWED_ROLES = ['Live Operator Lead', 'Live Operator Trainer', 'Live Operator'];
                 const activeEvents = filteredStatsEvents.filter(e => e.status !== 'Cancelled');
                 const eligibleMembers = team.filter(m => ALLOWED_ROLES.includes(m.role));
                 const assignmentData = eligibleMembers.map(member => {
                     let inChargeCount = 0; let backupCount = 0;
+                    let companyCounts = {};
+                    companies.forEach(c => companyCounts[c] = 0);
+
                     activeEvents.forEach(ev => {
                         const icList = Array.isArray(ev.inCharge) ? ev.inCharge : (ev.inCharge ? [ev.inCharge] : []);
                         const bList = Array.isArray(ev.backup) ? ev.backup : (ev.backup ? [ev.backup] : []);
-                        if (icList.includes(member.name)) { inChargeCount++; }
-                        if (bList.includes(member.name)) { backupCount++; }
+                        const isIC = icList.includes(member.name);
+                        const isB = bList.includes(member.name);
+
+                        if (isIC) { inChargeCount++; }
+                        if (isB) { backupCount++; }
+
+                        if (isIC || isB) {
+                            if (ev.company) {
+                                companyCounts[ev.company] = (companyCounts[ev.company] || 0) + 1;
+                            }
+                        }
                     });
-                    return { ...member, inChargeCount, backupCount, total: inChargeCount + backupCount };
+                    return { ...member, inChargeCount, backupCount, total: inChargeCount + backupCount, companyCounts };
                 }).filter(member => member.total > 0);
                 return groupMembersByRole(assignmentData);
-            }, [filteredStatsEvents, team]);
+            }, [filteredStatsEvents, team, companies]);
 
             const renderNicknames = (data) => {
                 if (!data) return '-';
                 const list = Array.isArray(data) ? data : [data];
                 return list.map(name => getNickname(name, team)).join(', ');
+            };
+
+            const renderCompanyBreakdown = (companyCounts) => {
+                if (!companyCounts) return null;
+                return (
+                    <div className="flex flex-wrap gap-1 justify-center items-center max-w-[150px] mx-auto">
+                        {Object.entries(companyCounts).map(([comp, count]) => {
+                            if (count === 0) return null;
+                            return (
+                                <span key={comp} className={`text-[10px] px-1.5 py-0.5 rounded font-bold border bg-white shadow-sm ${getCompanyColor(comp)} border-slate-200`}>
+                                    {comp}: {count}
+                                </span>
+                            );
+                        })}
+                    </div>
+                );
             };
 
             const handleStatusSelect = (e, eventId) => { onUpdateStatus(eventId, e.target.value); };
@@ -685,11 +725,11 @@
                     {/* Team Perf and Assigned Stats Tables Omitted for Brevity - they use same overflow-x-auto pattern */}
                     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50/50"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-3"><div className="p-2 bg-white rounded-xl shadow-sm text-brand-600"><Users size={20} /></div> Team Performance (Done Events)</h3></div>
-                        <div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs tracking-wider"><tr><th className="px-6 py-4">Full Name</th><th className="px-6 py-4">Nickname</th><th className="px-6 py-4">Role</th><th className="px-6 py-4 text-center">In-Charge</th><th className="px-6 py-4 text-center">Backup</th><th className="px-6 py-4 text-center">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{teamPerformanceGroups.map((group) => (<React.Fragment key={group.role}><tr className="bg-slate-50/50"><td colSpan="6" className="font-bold text-slate-700 px-6 py-3 border-b border-slate-200 text-xs uppercase tracking-wide">{group.role}</td></tr>{group.members.map((member, idx) => (<tr key={`${group.role}-${idx}`} className="hover:bg-slate-50"><td className="px-6 py-4 font-medium text-slate-800">{member.name}</td><td className="px-6 py-4 text-slate-600">{member.nickname}</td><td className="px-6 py-4 text-slate-500 text-xs bg-slate-100 rounded-lg inline-block my-3 mx-6 py-1 px-2">{member.role}</td><td className="px-6 py-4 text-center font-bold text-brand-600 text-lg">{member.inChargeCount}</td><td className="px-6 py-4 text-center font-bold text-slate-600 text-lg">{member.backupCount}</td><td className="px-6 py-4 text-center font-black text-slate-800 text-lg">{member.total}</td></tr>))}</React.Fragment>))}{teamPerformanceGroups.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-slate-400 font-medium italic">No active team members for this period.</td></tr>}</tbody></table></div>
+                        <div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs tracking-wider"><tr><th className="px-6 py-4">Full Name</th><th className="px-6 py-4">Nickname</th><th className="px-6 py-4">Role</th><th className="px-6 py-4 text-center">In-Charge</th><th className="px-6 py-4 text-center">Backup</th><th className="px-6 py-4 text-center">By Company</th><th className="px-6 py-4 text-center">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{teamPerformanceGroups.map((group) => (<React.Fragment key={group.role}><tr className="bg-slate-50/50"><td colSpan="7" className="font-bold text-slate-700 px-6 py-3 border-b border-slate-200 text-xs uppercase tracking-wide">{group.role}</td></tr>{group.members.map((member, idx) => (<tr key={`${group.role}-${idx}`} className="hover:bg-slate-50"><td className="px-6 py-4 font-medium text-slate-800">{member.name}</td><td className="px-6 py-4 text-slate-600">{member.nickname}</td><td className="px-6 py-4 text-slate-500 text-xs bg-slate-100 rounded-lg inline-block my-3 mx-6 py-1 px-2">{member.role}</td><td className="px-6 py-4 text-center font-bold text-brand-600 text-lg">{member.inChargeCount}</td><td className="px-6 py-4 text-center font-bold text-slate-600 text-lg">{member.backupCount}</td><td className="px-6 py-4 text-center">{renderCompanyBreakdown(member.companyCounts)}</td><td className="px-6 py-4 text-center font-black text-slate-800 text-lg">{member.total}</td></tr>))}</React.Fragment>))}{teamPerformanceGroups.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-slate-400 font-medium italic">No active team members for this period.</td></tr>}</tbody></table></div>
                     </div>
                     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-slate-100 bg-slate-50/50"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-3"><div className="p-2 bg-white rounded-xl shadow-sm text-brand-600"><Briefcase size={20} /></div> Assigned Event Counter</h3></div>
-                        <div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs tracking-wider"><tr><th className="px-6 py-4">Full Name</th><th className="px-6 py-4">Nickname</th><th className="px-6 py-4">Role</th><th className="px-6 py-4 text-center">In-Charge</th><th className="px-6 py-4 text-center">Backup</th><th className="px-6 py-4 text-center">Total Assigned</th></tr></thead><tbody className="divide-y divide-slate-100">{assignedStatsGroups.map((group) => (<React.Fragment key={group.role}><tr className="bg-slate-50/50"><td colSpan="6" className="font-bold text-slate-700 px-6 py-3 border-b border-slate-200 text-xs uppercase tracking-wide">{group.role}</td></tr>{group.members.map((member, idx) => (<tr key={`${group.role}-${idx}`} className="hover:bg-slate-50"><td className="px-6 py-4 font-medium text-slate-800">{member.name}</td><td className="px-6 py-4 text-slate-600">{member.nickname}</td><td className="px-6 py-4 text-slate-500 text-xs bg-slate-100 rounded-lg inline-block my-3 mx-6 py-1 px-2">{member.role}</td><td className="px-6 py-4 text-center font-bold text-brand-600 text-lg">{member.inChargeCount}</td><td className="px-6 py-4 text-center font-bold text-slate-600 text-lg">{member.backupCount}</td><td className="px-6 py-4 text-center font-black text-slate-800 text-lg">{member.total}</td></tr>))}</React.Fragment>))}{assignedStatsGroups.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-slate-400 font-medium italic">No data available.</td></tr>}</tbody></table></div>
+                        <div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs tracking-wider"><tr><th className="px-6 py-4">Full Name</th><th className="px-6 py-4">Nickname</th><th className="px-6 py-4">Role</th><th className="px-6 py-4 text-center">In-Charge</th><th className="px-6 py-4 text-center">Backup</th><th className="px-6 py-4 text-center">By Company</th><th className="px-6 py-4 text-center">Total Assigned</th></tr></thead><tbody className="divide-y divide-slate-100">{assignedStatsGroups.map((group) => (<React.Fragment key={group.role}><tr className="bg-slate-50/50"><td colSpan="7" className="font-bold text-slate-700 px-6 py-3 border-b border-slate-200 text-xs uppercase tracking-wide">{group.role}</td></tr>{group.members.map((member, idx) => (<tr key={`${group.role}-${idx}`} className="hover:bg-slate-50"><td className="px-6 py-4 font-medium text-slate-800">{member.name}</td><td className="px-6 py-4 text-slate-600">{member.nickname}</td><td className="px-6 py-4 text-slate-500 text-xs bg-slate-100 rounded-lg inline-block my-3 mx-6 py-1 px-2">{member.role}</td><td className="px-6 py-4 text-center font-bold text-brand-600 text-lg">{member.inChargeCount}</td><td className="px-6 py-4 text-center font-bold text-slate-600 text-lg">{member.backupCount}</td><td className="px-6 py-4 text-center">{renderCompanyBreakdown(member.companyCounts)}</td><td className="px-6 py-4 text-center font-black text-slate-800 text-lg">{member.total}</td></tr>))}</React.Fragment>))}{assignedStatsGroups.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-slate-400 font-medium italic">No data available.</td></tr>}</tbody></table></div>
                     </div>
                 </div>
             );
@@ -1479,7 +1519,7 @@
                         </header>
                         <div className="flex-1 overflow-auto p-4 sm:p-8 custom-scrollbar">
                             <div className="max-w-7xl mx-auto">
-                                {activeMenu === 'dashboard' && <Dashboard events={events} team={config.team} onUpdateStatus={handleStatusUpdate} currentUser={currentUserProfile} />}
+                                {activeMenu === 'dashboard' && <Dashboard events={events} team={config.team} companies={config.companies} onUpdateStatus={handleStatusUpdate} currentUser={currentUserProfile} />}
                                 {activeMenu === 'event' && <EventsView events={events} team={config.team} companies={config.companies} onAdd={() => { setEditingEvent(null); setIsModalOpen(true); }} onEdit={(ev) => { setEditingEvent(ev); setIsModalOpen(true); }} onDelete={confirmDeleteEvent} currentUser={currentUserProfile} />}
                                 {activeMenu === 'reports' && <ReportsView events={events} team={config.team} companies={config.companies} />}
                                 {activeMenu === 'settings' && <SettingsView config={config} currentUser={currentUserProfile} onUpdateConfig={handleUpdateConfig} onResetData={handleResetData} onSaveProfile={handleSaveProfile} onBackup={handleBackup} onRestore={handleRestore} />}
